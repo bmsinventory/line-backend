@@ -27,6 +27,7 @@ router.post('/line', async (req, res) => {
   const body = req.body; // Buffer (raw)
 
   if (!sig || !validateSignature(body, process.env.LINE_CHANNEL_SECRET, sig)) {
+    console.error('[Webhook] Invalid signature — ตรวจสอบ LINE_CHANNEL_SECRET');
     return res.status(401).send('Invalid signature');
   }
 
@@ -40,10 +41,12 @@ router.post('/line', async (req, res) => {
     return;
   }
 
+  console.log(`[Webhook] รับ ${events.length} event(s)`);
+
   for (const event of events) {
     // รองรับแค่ข้อความ text จากกลุ่ม
-    if (event.type !== 'message') continue;
-    if (event.source.type !== 'group') continue;
+    if (event.type !== 'message') { console.log(`[Webhook] ข้าม event type: ${event.type}`); continue; }
+    if (event.source.type !== 'group') { console.log(`[Webhook] ข้าม source type: ${event.source.type}`); continue; }
 
     const lineGroupId = event.source.groupId;
     const lineUserId  = event.source.userId;
@@ -52,6 +55,8 @@ router.post('/line', async (req, res) => {
 
     const text       = msgType === 'text' ? event.message.text : `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
+
+    console.log(`[Webhook] ข้อความจาก group=${lineGroupId} user=${lineUserId}`);
 
     try {
       // 1. หา group จาก DB
