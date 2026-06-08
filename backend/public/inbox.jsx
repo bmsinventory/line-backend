@@ -44,7 +44,8 @@ function MenuItem({ onClick, active, children, color }) {
 function IssueCard({ issue, active, onClick }) {
   const group = byId(D.GROUPS, issue.groupId) || { initials: '??', color: '#94A3B8', name: 'ไม่ระบุกลุ่ม' };
   const assignee = issue.assigneeId ? byId(D.MEMBERS, issue.assigneeId) : null;
-  const last = issue.thread[issue.thread.length - 1];
+  const thread = issue.thread || [];
+  const last = thread.length > 0 ? thread[thread.length - 1] : null;
   return (
     <button onClick={onClick} style={{
       width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', position: 'relative',
@@ -66,7 +67,7 @@ function IssueCard({ issue, active, onClick }) {
         marginBottom: 6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
       }}>{issue.title}</div>
       <div style={{ fontSize: 12.5, color: '#94A3B8', marginBottom: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {last.from === 'agent' ? 'คุณ: ' : last.from === 'system' ? '⚙ ' : ''}{last.text}
+        {last ? (last.from === 'agent' ? 'คุณ: ' : last.from === 'system' ? '⚙ ' : '') + (last.text || '') : ''}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <StatusPill status={issue.status} size="sm" />
