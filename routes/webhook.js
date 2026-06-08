@@ -53,8 +53,14 @@ router.post('/line', async (req, res) => {
     const timestamp   = new Date(event.timestamp).toISOString();
     const msgType     = event.message.type; // 'text' | 'image' | 'video' | ...
 
-    const text       = msgType === 'text' ? event.message.text : `[${msgType}]`;
+    const rawText    = msgType === 'text' ? event.message.text : '';
+    const text       = rawText || `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
+
+    // คำสำคัญที่ใช้เปิด issue ใหม่ (case-insensitive, ตัดช่องว่างหน้า-หลัง)
+    const TRIGGERS = ['แจ้งปัญหา', 'แจ้งเรื่อง', 'ขอความช่วยเหลือ', 'report'];
+    const triggerMatch = TRIGGERS.find((t) => rawText.toLowerCase().startsWith(t.toLowerCase()));
+    const isNewRequest = !!triggerMatch;
 
     console.log(`[Webhook] ข้อความจาก group=${lineGroupId} user=${lineUserId}`);
 
@@ -116,7 +122,7 @@ router.post('/line', async (req, res) => {
         .maybeSingle();
 
       if (existingIssue) {
-        // เพิ่มข้อความในกระทู้เดิม
+        // มี issue เปิดอยู่ → เพิ่มข้อความเข้า thread เดิมเสมอ (ไม่ต้องใช้ keyword)
         await supabase.from('messages').insert({
           issue_id:   existingIssue.id,
           from_type:  'customer',
@@ -129,9 +135,12 @@ router.post('/line', async (req, res) => {
         await supabase.from('issues')
           .update({ unread: true })
           .eq('id', existingIssue.id);
-      } else {
-        // สร้าง issue ใหม่ (ใช้ข้อความแรกเป็น title)
-        const title = text.length > 80 ? text.slice(0, 79) + '…' : text;
+        console.log(`[Webhook] เพิ่มข้อความใน issue ${existingIssue.id}`);
+
+      } else if (isNewRequest) {
+        // ไม่มี issue เปิด + มี keyword → สร้าง issue ใหม่
+        const titleRaw = rawText.slice(triggerMatch.length).replace(/^[:\s]+/, '').trim();
+        const title    = (titleRaw || rawText).slice(0, 80);
 
         const { data: newIssue, error } = await supabase
           .from('issues')
@@ -162,6 +171,19 @@ router.post('/line', async (req, res) => {
           line_message_id: event.message.id,
           created_at: timestamp,
         });
+        console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
+
+        // แจ้งยืนยันกลับในกลุ่ม
+        try {
+          await lineClient.pushMessage({
+            to: lineGroupId,
+            messages: [{ type: 'text', text: `✅ รับเรื่องแล้วครับ คุณ${reporterName}\n📋 "${title}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้` }],
+          });
+        } catch { /* ถ้าส่งไม่ได้ ไม่ต้อง block */ }
+
+      } else {
+        // ข้อความทั่วไป ไม่มี keyword → ระบบเงียบ ไม่ตอบกลับ
+        console.log(`[Webhook] ข้อความทั่วไป ละเว้น`);
       }
     } catch (err) {
       console.error('[Webhook] Error processing event:', err);
