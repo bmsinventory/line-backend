@@ -2,7 +2,7 @@ const express  = require('express');
 const router   = express.Router();
 const crypto   = require('crypto');
 const supabase = require('../lib/supabase');
-const { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE, verifyPassword } = require('../lib/auth');
+const { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE, verifyPassword, hashPassword } = require('../lib/auth');
 
 // LINE Login channel config
 const LINE_CHANNEL_ID     = process.env.LINE_LOGIN_CHANNEL_ID;
@@ -38,6 +38,56 @@ function setCookieHeader(res, token) {
 function makeToken(memberId, name, role) {
   return sign({ memberId, name, role, exp: Date.now() + COOKIE_MAXAGE });
 }
+
+// =====================================================
+// GET /api/auth/setup/status — เช็คว่ายังไม่มี admin จริงหรือยัง
+// =====================================================
+router.get('/setup/status', async (_req, res) => {
+  try {
+    const { data } = await supabase
+      .from('members')
+      .select('id')
+      .not('password_hash', 'is', null)
+      .limit(1);
+    res.json({ setupDone: (data || []).length > 0 });
+  } catch {
+    res.json({ setupDone: false });
+  }
+});
+
+// =====================================================
+// POST /api/auth/setup/admin — สร้าง admin คนแรก (ใช้ได้ครั้งเดียว)
+// =====================================================
+router.post('/setup/admin', async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || !email || !password)
+    return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
+  if (password.length < 6)
+    return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' });
+
+  // ตรวจว่ายังไม่มี member ที่มี password_hash
+  const { data: existing } = await supabase
+    .from('members')
+    .select('id')
+    .not('password_hash', 'is', null)
+    .limit(1);
+  if ((existing || []).length > 0)
+    return res.status(403).json({ error: 'ระบบตั้งค่าแล้ว กรุณา login ด้วยบัญชีที่มีอยู่' });
+
+  const id = 'mx' + Date.now();
+  const initials = name.trim().slice(0, 2);
+  const password_hash = hashPassword(password);
+  const { error } = await supabase.from('members').insert({
+    id, name: name.trim(), role: 'แอดมิน',
+    email: email.trim().toLowerCase(),
+    password_hash, initials,
+    color: '#06C755',
+  });
+  if (error) return res.status(500).json({ error: error.message });
+
+  setCookieHeader(res, makeToken(id, name.trim(), 'แอดมิน'));
+  res.json({ ok: true, name: name.trim(), role: 'แอดมิน' });
+});
 
 // =====================================================
 // POST /api/auth/login — อีเมล / เบอร์โทร + รหัสผ่าน

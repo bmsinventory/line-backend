@@ -32,24 +32,32 @@ function Field({ icon, label, type = 'text', value, onChange, placeholder, trail
 
 function Login({ onLogin }) {
   const isMobile = useIsMobile();
+  const [mode, setMode] = useState('login'); // 'login' | 'setup'
+  const [setupDone, setSetupDone] = useState(true); // ถ้า false = แสดงปุ่ม setup
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lineLoading, setLineLoading] = useState(false);
   const [error, setError] = useState('');
+  // setup fields
+  const [setupName, setSetupName] = useState('');
+  const [setupEmail, setSetupEmail] = useState('');
+  const [setupPw, setSetupPw] = useState('');
+  const [setupPw2, setSetupPw2] = useState('');
+  const [showSetupPw, setShowSetupPw] = useState(false);
 
-  // ตรวจ error จาก LINE OAuth callback (URL param ?auth_error=...)
   useEffect(() => {
+    // เช็คว่ามี admin จริงแล้วหรือยัง
+    fetch('/api/auth/setup/status').then(r => r.json()).then(d => setSetupDone(d.setupDone)).catch(() => {});
+    // ตรวจ error จาก LINE OAuth callback
     const params = new URLSearchParams(window.location.search);
     const authError = params.get('auth_error');
     if (!authError) return;
-    // ดึงข้อความ error จาก backend
     fetch('/api/auth/line/errors')
       .then(r => r.json())
       .then(msgs => setError(msgs[authError] || 'เข้าสู่ระบบผ่าน LINE ไม่สำเร็จ'))
       .catch(() => setError('เข้าสู่ระบบผ่าน LINE ไม่สำเร็จ'));
-    // ลบ query string ออกจาก URL
     window.history.replaceState({}, '', '/');
   }, []);
 
@@ -65,6 +73,28 @@ function Login({ onLogin }) {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'เข้าสู่ระบบไม่สำเร็จ'); return; }
+      onLogin();
+    } catch {
+      setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitSetup = async () => {
+    if (loading) return;
+    setError('');
+    if (!setupName.trim() || !setupEmail.trim() || !setupPw) { setError('กรุณากรอกข้อมูลให้ครบ'); return; }
+    if (setupPw !== setupPw2) { setError('รหัสผ่านไม่ตรงกัน'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/setup/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: setupName.trim(), email: setupEmail.trim(), password: setupPw }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'เกิดข้อผิดพลาด'); return; }
       onLogin();
     } catch {
       setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
@@ -122,6 +152,77 @@ function Login({ onLogin }) {
     </div>
   );
 
+  const errBox = error && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 14px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
+      <Icon name="fire" size={16} style={{ color: '#DC2626', flexShrink: 0 }} />
+      <span style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>{error}</span>
+    </div>
+  );
+
+  /* ---- setup form (first-time admin creation) ---- */
+  const setupForm = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: '11px 14px', background: '#EFF6FF', borderRadius: 10, border: '1px solid #BFDBFE', fontSize: 13, color: '#1D4ED8', fontWeight: 600 }}>
+        ตั้งค่าครั้งแรก — สร้างบัญชีผู้ดูแลระบบ (แอดมิน) คนแรก
+      </div>
+      <Field icon="user" label="ชื่อผู้ดูแลระบบ" value={setupName} onChange={(e) => setSetupName(e.target.value)} placeholder="เช่น สมชาย ใจดี" />
+      <Field icon="mail" label="อีเมล" type="email" value={setupEmail} onChange={(e) => setSetupEmail(e.target.value)} placeholder="you@company.co.th" />
+      <Field icon="lock" label="รหัสผ่าน (อย่างน้อย 6 ตัว)" type={showSetupPw ? 'text' : 'password'} value={setupPw} onChange={(e) => setSetupPw(e.target.value)} placeholder="••••••••"
+        trailing={<button type="button" onClick={() => setShowSetupPw(s => !s)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94A3B8', padding: 4, display: 'flex' }}><Icon name={showSetupPw ? 'eyeOff' : 'eye'} size={18} /></button>}
+      />
+      <Field icon="lock" label="ยืนยันรหัสผ่าน" type={showSetupPw ? 'text' : 'password'} value={setupPw2} onChange={(e) => setSetupPw2(e.target.value)} placeholder="••••••••" />
+      {errBox}
+      <button onClick={submitSetup} disabled={loading} style={{
+        height: 49, border: 'none', borderRadius: 12, cursor: loading ? 'default' : 'pointer', fontFamily: 'inherit',
+        fontSize: 15, fontWeight: 700, color: '#fff', background: '#3B82F6', marginTop: 2,
+        boxShadow: '0 4px 14px rgba(59,130,246,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
+        opacity: loading ? 0.7 : 1, transition: 'all .15s',
+      }}>
+        {loading ? <Spinner color="#fff" /> : <>สร้างบัญชีแอดมิน <Icon name="chevronRight" size={17} strokeWidth={2.4} /></>}
+      </button>
+      <button onClick={() => { setMode('login'); setError(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 13, fontWeight: 600, fontFamily: 'inherit', textAlign: 'center' }}>
+        ← กลับหน้าเข้าสู่ระบบ
+      </button>
+    </div>
+  );
+
+  /* ---- login form ---- */
+  const loginForm = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Field icon="mail" label="อีเมล / เบอร์โทรศัพท์" type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.co.th หรือ 081-234-5678" />
+      <Field
+        icon="lock" label="รหัสผ่าน" type={show ? 'text' : 'password'} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••"
+        trailing={
+          <button type="button" onClick={() => setShow((s) => !s)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94A3B8', padding: 4, display: 'flex' }}>
+            <Icon name={show ? 'eyeOff' : 'eye'} size={18} />
+          </button>
+        }
+      />
+      {errBox}
+      <button onClick={submit} disabled={loading || lineLoading} style={{
+        height: 49, border: 'none', borderRadius: 12, cursor: (loading || lineLoading) ? 'default' : 'pointer', fontFamily: 'inherit',
+        fontSize: 15, fontWeight: 700, color: '#fff', background: '#06C755', marginTop: 2,
+        boxShadow: '0 4px 14px rgba(6,199,85,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, whiteSpace: 'nowrap',
+        opacity: (loading || lineLoading) ? 0.7 : 1, transition: 'all .15s',
+      }}>
+        {loading ? <Spinner /> : <>เข้าสู่ระบบ <Icon name="chevronRight" size={17} strokeWidth={2.4} /></>}
+      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 0' }}>
+        <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
+        <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600 }}>หรือ</span>
+        <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
+      </div>
+      <button onClick={loginWithLine} disabled={loading || lineLoading} style={{
+        height: 49, border: '1.5px solid #06C755', borderRadius: 12, cursor: (loading || lineLoading) ? 'default' : 'pointer', fontFamily: 'inherit',
+        fontSize: 14.5, fontWeight: 700, color: '#06C755', background: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, whiteSpace: 'nowrap',
+        opacity: (loading || lineLoading) ? 0.7 : 1, transition: 'all .15s',
+      }}>
+        {lineLoading ? <Spinner color="#06C755" /> : <><LineLogo size={20} /> เข้าสู่ระบบด้วย LINE</>}
+      </button>
+    </div>
+  );
+
   /* ---- form panel ---- */
   const formPanel = (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '28px 20px 40px' : '40px', background: '#F4F7F6', minHeight: 0, overflowY: 'auto' }}>
@@ -139,56 +240,32 @@ function Login({ onLogin }) {
         )}
 
         <div style={{ marginBottom: 26 }}>
-          <h2 style={{ margin: 0, fontSize: 25, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif', letterSpacing: '-.01em' }}>เข้าสู่ระบบ</h2>
-          <p style={{ margin: '7px 0 0', fontSize: 14, color: '#94A3B8', fontWeight: 500 }}>ยินดีต้อนรับกลับ เข้าสู่บัญชีแอดมินของคุณ</p>
+          <h2 style={{ margin: 0, fontSize: 25, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif', letterSpacing: '-.01em' }}>
+            {mode === 'setup' ? 'ตั้งค่าระบบครั้งแรก' : 'เข้าสู่ระบบ'}
+          </h2>
+          <p style={{ margin: '7px 0 0', fontSize: 14, color: '#94A3B8', fontWeight: 500 }}>
+            {mode === 'setup' ? 'สร้างบัญชีผู้ดูแลระบบเพื่อเริ่มใช้งาน' : 'ยินดีต้อนรับกลับ เข้าสู่บัญชีแอดมินของคุณ'}
+          </p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Field icon="mail" label="อีเมล / เบอร์โทรศัพท์" type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.co.th หรือ 081-234-5678" />
-          <Field
-            icon="lock" label="รหัสผ่าน" type={show ? 'text' : 'password'} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••"
-            trailing={
-              <button type="button" onClick={() => setShow((s) => !s)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94A3B8', padding: 4, display: 'flex' }}>
-                <Icon name={show ? 'eyeOff' : 'eye'} size={18} />
-              </button>
-            }
-          />
+        {mode === 'setup' ? setupForm : loginForm}
 
-          {error && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 14px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
-              <Icon name="fire" size={16} style={{ color: '#DC2626', flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>{error}</span>
-            </div>
-          )}
-
-          <button onClick={submit} disabled={loading || lineLoading} style={{
-            height: 49, border: 'none', borderRadius: 12, cursor: (loading || lineLoading) ? 'default' : 'pointer', fontFamily: 'inherit',
-            fontSize: 15, fontWeight: 700, color: '#fff', background: '#06C755', marginTop: 2,
-            boxShadow: '0 4px 14px rgba(6,199,85,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, whiteSpace: 'nowrap',
-            opacity: (loading || lineLoading) ? 0.7 : 1, transition: 'all .15s',
-          }}>
-            {loading ? <Spinner /> : <>เข้าสู่ระบบ <Icon name="chevronRight" size={17} strokeWidth={2.4} /></>}
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 0' }}>
-            <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
-            <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600 }}>หรือ</span>
-            <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
+        {mode === 'login' && !setupDone && (
+          <div style={{ marginTop: 20, padding: '13px 16px', background: '#FFF7ED', borderRadius: 12, border: '1px solid #FED7AA' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#92400E', marginBottom: 6 }}>ยังไม่มีบัญชีในระบบ?</div>
+            <div style={{ fontSize: 12.5, color: '#B45309', fontWeight: 500, marginBottom: 10 }}>สร้างบัญชีผู้ดูแลระบบคนแรกได้เลย</div>
+            <button onClick={() => { setMode('setup'); setError(''); }} style={{
+              width: '100%', height: 38, border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit',
+              fontSize: 13, fontWeight: 700, color: '#fff', background: '#F59E0B',
+            }}>สร้างบัญชีแอดมินคนแรก</button>
           </div>
+        )}
 
-          <button onClick={loginWithLine} disabled={loading || lineLoading} style={{
-            height: 49, border: '1.5px solid #06C755', borderRadius: 12, cursor: (loading || lineLoading) ? 'default' : 'pointer', fontFamily: 'inherit',
-            fontSize: 14.5, fontWeight: 700, color: '#06C755', background: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, whiteSpace: 'nowrap',
-            opacity: (loading || lineLoading) ? 0.7 : 1, transition: 'all .15s',
-          }}>
-            {lineLoading ? <Spinner color="#06C755" /> : <><LineLogo size={20} /> เข้าสู่ระบบด้วย LINE</>}
-          </button>
-        </div>
-
-        <p style={{ textAlign: 'center', fontSize: 13, color: '#94A3B8', fontWeight: 500, marginTop: 24 }}>
-          ยังไม่มีบัญชี? <a href="#" onClick={(e) => e.preventDefault()} style={{ color: '#06C755', fontWeight: 700, textDecoration: 'none' }}>ติดต่อผู้ดูแลระบบ</a>
-        </p>
+        {mode === 'login' && setupDone && (
+          <p style={{ textAlign: 'center', fontSize: 13, color: '#94A3B8', fontWeight: 500, marginTop: 24 }}>
+            ยังไม่มีบัญชี? <a href="#" onClick={(e) => e.preventDefault()} style={{ color: '#06C755', fontWeight: 700, textDecoration: 'none' }}>ติดต่อผู้ดูแลระบบ</a>
+          </p>
+        )}
       </div>
     </div>
   );
