@@ -361,100 +361,109 @@ function App() {
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
-  /* ---- โหลดข้อมูล ---- */
+  /* ---- โหลด issues (ใช้ใน realtime callback ด้วย) ---- */
   const fetchIssues = async () => {
     try {
-      const data = await fetch('/api/issues').then((r) => r.json());
+      const res = await fetch('/api/issues');
+      if (res.status === 401) { doLogout(); return; }
+      const data = await res.json();
       setIssues(data.map(normalizeIssue));
     } catch (err) {
       console.error('[App] fetchIssues:', err);
     }
   };
 
-  useEffect(() => {
-    // Boot: โหลด groups, members, issues ก่อน render UI
-    async function boot() {
-      try {
-        const results = await Promise.allSettled([
-          fetch('/api/issues').then((r) => r.json()),
-          fetch('/api/groups').then((r) => r.json()),
-          fetch('/api/members').then((r) => r.json()),
-          fetch('/api/categories').then((r) => r.json()),
-          fetch('/api/quick-replies').then((r) => r.json()),
-        ]);
-        const val = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
-        const issuesData     = val(0) || [];
-        const groupsData     = val(1) || [];
-        const membersData    = val(2) || [];
-        const categoriesData = val(3) || [];
-        const repliesData    = val(4) || [];
+  /* ---- โหลดข้อมูลทั้งหมด ---- */
+  const loadData = async () => {
+    const results = await Promise.allSettled([
+      fetch('/api/issues').then((r) => r.json()),
+      fetch('/api/groups').then((r) => r.json()),
+      fetch('/api/members').then((r) => r.json()),
+      fetch('/api/categories').then((r) => r.json()),
+      fetch('/api/quick-replies').then((r) => r.json()),
+    ]);
+    const val = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
+    const issuesData     = val(0) || [];
+    const groupsData     = val(1) || [];
+    const membersData    = val(2) || [];
+    const categoriesData = val(3) || [];
+    const repliesData    = val(4) || [];
 
-        D.GROUPS        = groupsData;
-        D.MEMBERS       = membersData;
-        D.QUICK_REPLIES = repliesData;
-        if (categoriesData.length > 0) {
-          D.CATEGORIES = {};
-          categoriesData.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
+    D.GROUPS        = groupsData;
+    D.MEMBERS       = membersData;
+    D.QUICK_REPLIES = repliesData;
+    if (categoriesData.length > 0) {
+      D.CATEGORIES = {};
+      categoriesData.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
+    }
+    setIssues(issuesData.map(normalizeIssue));
+  };
+
+  /* ---- Boot sequence ---- */
+  useEffect(() => {
+    async function boot() {
+      // 1. Init Supabase client (ก่อน login เพื่อให้ realtime พร้อม)
+      try {
+        const cfg = await fetch('/api/config').then((r) => r.json());
+        if (cfg?.supabaseUrl && cfg?.supabaseAnonKey && window.supabase) {
+          window.supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
         }
-        setIssues(issuesData.map(normalizeIssue));
-      } catch (err) {
-        console.error('[App] boot failed:', err);
-      } finally {
-        setBooted(true);
-      }
+      } catch { /* ถ้า init ไม่ได้ realtime ไม่ทำงาน — ไม่ block */ }
+
+      // 2. ตรวจว่า session ยังอยู่ไหม (HTTP-only cookie)
+      try {
+        const verifyRes = await fetch('/api/auth/verify');
+        if (verifyRes.ok) {
+          await loadData();
+          setAuthed(true);
+        }
+      } catch { /* ถ้าไม่ได้ แสดงหน้า login */ }
+
+      setBooted(true);
     }
     boot();
   }, []);
 
+  /* ---- Realtime subscription (เริ่มหลัง authed เท่านั้น) ---- */
   useEffect(() => {
-    if (!booted) return;
-    // Supabase Realtime: รับ event เมื่อ issues หรือ messages เปลี่ยน
-    if (!window.supabaseClient) return;
+    if (!authed || !window.supabaseClient) return;
     const channel = window.supabaseClient
       .channel('db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' },   fetchIssues)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, fetchIssues)
-      .subscribe();
+      .subscribe((status) => console.log('[Realtime]', status));
     return () => channel.unsubscribe();
-  }, [booted]);
+  }, [authed]);
 
   /* ---- อัปเดต issue ---- */
   const update = async (id, patch) => {
-    // แปลง frontend field names → DB field names
     const body = {};
     if (patch.status      !== undefined) body.status      = patch.status;
     if (patch.assigneeId  !== undefined) body.assignee_id = patch.assigneeId;
     if (patch.priority    !== undefined) body.priority    = patch.priority;
     if (patch.category    !== undefined) body.category    = patch.category;
     if (patch.tags        !== undefined) body.tags        = patch.tags;
-
     try {
-      await fetch(`/api/issues/${id}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
+      const res = await fetch(`/api/issues/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
+      if (res.status === 401) { doLogout(); return; }
       await fetchIssues();
-      if (patch.status !== undefined)     flash('อัปเดตสถานะแล้ว');
-      else if ('assigneeId' in patch)     flash('มอบหมายงานแล้ว');
-    } catch (err) {
-      console.error('[App] update:', err);
-    }
+      if (patch.status !== undefined) flash('อัปเดตสถานะแล้ว');
+      else if ('assigneeId' in patch)  flash('มอบหมายงานแล้ว');
+    } catch (err) { console.error('[App] update:', err); }
   };
 
   /* ---- ตอบกลับ ---- */
   const reply = async (id, text, internal) => {
     try {
-      await fetch(`/api/issues/${id}/reply`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ text, internal }),
+      const res = await fetch(`/api/issues/${id}/reply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, internal }),
       });
+      if (res.status === 401) { doLogout(); return; }
       await fetchIssues();
       flash(internal ? 'บันทึกโน้ตภายในแล้ว' : 'ส่งข้อความเข้า Line แล้ว');
-    } catch (err) {
-      console.error('[App] reply:', err);
-    }
+    } catch (err) { console.error('[App] reply:', err); }
   };
 
   /* ---- เพิ่มปัญหาด้วยมือ ---- */
@@ -463,39 +472,48 @@ function App() {
     if (!title) return;
     try {
       await fetch('/api/issues', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ title }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
       });
       await fetchIssues();
       flash('สร้างเรื่องใหม่แล้ว');
-    } catch (err) {
-      console.error('[App] addIssue:', err);
-    }
+    } catch (err) { console.error('[App] addIssue:', err); }
+  };
+
+  /* ---- Login / Logout ---- */
+  const handleLogin = async () => {
+    await loadData();
+    setAuthed(true);
+  };
+
+  const doLogout = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+    setAuthed(false);
+    setIssues([]);
+    setView('inbox');
+    setSel(null);
   };
 
   const openFromBoard = (id) => { setSel(id); setView('inbox'); };
   const openCount = issues.filter((i) => i.status !== 'resolved').length;
-  const logout = () => { setAuthed(false); setView('inbox'); setSel(null); };
 
   // mark read on select
   useEffect(() => {
     if (selId) setIssues((arr) => arr.map((i) => i.id === selId ? { ...i, unread: false } : i));
   }, [selId]);
 
-  // เริ่มต้น selId หลัง boot
+  // auto-select first issue เมื่อ authed หรือ boot เสร็จ
   useEffect(() => {
-    if (booted && !isMobile && issues.length > 0 && !selId) setSel(issues[0].id);
-  }, [booted]);
+    if (booted && authed && !isMobile && issues.length > 0 && !selId) setSel(issues[0].id);
+  }, [booted, authed]);
 
   if (!booted) return <LoadingScreen />;
-  if (!authed) return <Login onLogin={() => setAuthed(true)} />;
+  if (!authed) return <Login onLogin={handleLogin} />;
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#EEF2F1' }}>
-      {!isMobile && <NavRail view={view} setView={setView} isMobile={false} openCount={openCount} onLogout={logout} />}
+      {!isMobile && <NavRail view={view} setView={setView} isMobile={false} openCount={openCount} onLogout={doLogout} />}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, paddingBottom: isMobile ? 64 : 0 }}>
-        <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={logout} onAddIssue={addIssue} />
+        <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} />
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} />}
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}
@@ -504,7 +522,7 @@ function App() {
           {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} />}
         </div>
       </div>
-      {isMobile && <NavRail view={view} setView={setView} isMobile={true} openCount={openCount} onLogout={logout} />}
+      {isMobile && <NavRail view={view} setView={setView} isMobile={true} openCount={openCount} onLogout={doLogout} />}
     </div>
   );
 }

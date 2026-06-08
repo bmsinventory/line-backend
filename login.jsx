@@ -32,18 +32,30 @@ function Field({ icon, label, type = 'text', value, onChange, placeholder, trail
 
 function Login({ onLogin }) {
   const isMobile = useIsMobile();
-  const [email, setEmail] = useState('admin@line-track.co.th');
-  const [pw, setPw] = useState('demo1234');
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
-  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState(null); // 'pw' | 'line'
+  const [error, setError] = useState('');
 
-  const submit = (kind) => {
+  const submit = async () => {
     if (loading) return;
-    setMode(kind);
+    setError('');
     setLoading(true);
-    setTimeout(() => onLogin(), 850);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password: pw }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'เข้าสู่ระบบไม่สำเร็จ'); return; }
+      onLogin();
+    } catch {
+      setError('ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const stats = [
@@ -122,46 +134,21 @@ function Login({ onLogin }) {
             }
           />
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <button type="button" onClick={() => setRemember((r) => !r)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
-              <span style={{
-                width: 19, height: 19, borderRadius: 6, flexShrink: 0,
-                border: '1.5px solid ' + (remember ? '#06C755' : '#CBD5E1'), background: remember ? '#06C755' : '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', transition: 'all .15s',
-              }}>{remember && <Icon name="check" size={12} strokeWidth={3} />}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>จดจำฉันไว้</span>
-            </button>
-            <a href="#" onClick={(e) => e.preventDefault()} style={{ fontSize: 13, fontWeight: 600, color: '#06C755', textDecoration: 'none', whiteSpace: 'nowrap' }}>ลืมรหัสผ่าน?</a>
-          </div>
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 14px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
+              <Icon name="fire" size={16} style={{ color: '#DC2626', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>{error}</span>
+            </div>
+          )}
 
-          <button onClick={() => submit('pw')} disabled={loading} style={{
+          <button onClick={submit} onKeyDown={(e) => e.key === 'Enter' && submit()} disabled={loading} style={{
             height: 49, border: 'none', borderRadius: 12, cursor: loading ? 'default' : 'pointer', fontFamily: 'inherit',
             fontSize: 15, fontWeight: 700, color: '#fff', background: '#06C755', marginTop: 2,
             boxShadow: '0 4px 14px rgba(6,199,85,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, whiteSpace: 'nowrap',
-            opacity: loading && mode !== 'pw' ? 0.5 : 1, transition: 'all .15s',
+            opacity: loading ? 0.8 : 1, transition: 'all .15s',
           }}>
-            {loading && mode === 'pw' ? <Spinner /> : <>เข้าสู่ระบบ <Icon name="chevronRight" size={17} strokeWidth={2.4} /></>}
+            {loading ? <Spinner /> : <>เข้าสู่ระบบ <Icon name="chevronRight" size={17} strokeWidth={2.4} /></>}
           </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0' }}>
-            <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
-            <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600 }}>หรือ</span>
-            <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
-          </div>
-
-          <button onClick={() => submit('line')} disabled={loading} style={{
-            height: 49, border: '1.5px solid #06C755', borderRadius: 12, cursor: loading ? 'default' : 'pointer', fontFamily: 'inherit',
-            fontSize: 14.5, fontWeight: 700, color: '#06C755', background: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, whiteSpace: 'nowrap',
-            opacity: loading && mode !== 'line' ? 0.5 : 1, transition: 'all .15s',
-          }}>
-            {loading && mode === 'line' ? <Spinner color="#06C755" /> : <><LineLogo size={20} /> เข้าสู่ระบบด้วย LINE</>}
-          </button>
-        </div>
-
-        <div style={{ marginTop: 22, padding: '11px 14px', background: '#fff', borderRadius: 11, border: '1px dashed #CBD5E1', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 26, height: 26, borderRadius: 8, background: '#06C75514', color: '#06C755', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="sparkles" size={15} /></span>
-          <span style={{ fontSize: 12.5, color: '#64748B', fontWeight: 500, lineHeight: 1.5 }}>โหมดสาธิต — กรอกข้อมูลตัวอย่างไว้แล้ว กด <b style={{ color: '#0B3D2E' }}>เข้าสู่ระบบ</b> ได้เลย</span>
         </div>
 
         <p style={{ textAlign: 'center', fontSize: 13, color: '#94A3B8', fontWeight: 500, marginTop: 24 }}>
