@@ -184,10 +184,24 @@ router.post('/issues/:id/reply', async (req, res) => {
 
   // ส่งไป Line (ถ้าไม่ใช่ internal note และมี group ที่เชื่อมต่อ)
   if (!internal && issue.line_group_id) {
+    // ดึง quote_token ของข้อความลูกค้าล่าสุด เพื่อ reply แบบอ้างอิง
+    const { data: lastCustomerMsg } = await supabase
+      .from('messages')
+      .select('quote_token')
+      .eq('issue_id', id)
+      .eq('from_type', 'customer')
+      .not('quote_token', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const lineMsg = { type: 'text', text };
+    if (lastCustomerMsg?.quote_token) lineMsg.quoteToken = lastCustomerMsg.quote_token;
+
     try {
       await lineClient.pushMessage({
         to: issue.line_group_id,
-        messages: [{ type: 'text', text }],
+        messages: [lineMsg],
       });
     } catch (lineErr) {
       console.error('[API] Line push error:', lineErr.message);

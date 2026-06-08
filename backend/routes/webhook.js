@@ -173,6 +173,7 @@ router.post('/line', async (req, res) => {
           text,
           attachment,
           line_message_id: event.message.id,
+          quote_token:     event.message.quoteToken || null,
           created_at: timestamp,
         });
         await supabase.from('issues')
@@ -229,6 +230,7 @@ router.post('/line', async (req, res) => {
           text,
           attachment,
           line_message_id: event.message.id,
+          quote_token:     event.message.quoteToken || null,
           created_at: timestamp,
         });
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
