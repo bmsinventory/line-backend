@@ -42,7 +42,7 @@ function MenuItem({ onClick, active, children, color }) {
 
 /* ---------- issue list card ---------- */
 function IssueCard({ issue, active, onClick }) {
-  const group = byId(D.GROUPS, issue.groupId);
+  const group = byId(D.GROUPS, issue.groupId) || { initials: '??', color: '#94A3B8', name: 'ไม่ระบุกลุ่ม' };
   const assignee = issue.assigneeId ? byId(D.MEMBERS, issue.assigneeId) : null;
   const last = issue.thread[issue.thread.length - 1];
   return (
@@ -140,7 +140,7 @@ function IssueDetail({ issue, onUpdate, onReply, onBack, isMobile }) {
   const scrollRef = useRef(null);
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [issue.id, issue.thread.length]);
 
-  const group = byId(D.GROUPS, issue.groupId);
+  const group = byId(D.GROUPS, issue.groupId) || { initials: '??', color: '#94A3B8', name: 'ไม่ระบุกลุ่ม' };
   const assignee = issue.assigneeId ? byId(D.MEMBERS, issue.assigneeId) : null;
 
   const send = () => {
