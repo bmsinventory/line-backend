@@ -278,18 +278,56 @@ function TeamSection({ toast }) {
 /* SECTION: Categories                                                    */
 /* ====================================================================== */
 function CategoriesSection({ toast }) {
-  const [cats, setCats] = useState(() => Object.entries(D.CATEGORIES).map(([k, v]) => ({ id: k, ...v })));
+  const [cats, setCats] = useState([]);
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState('');
   const [color, setColor] = useState('#10B981');
+  const [saving, setSaving] = useState(false);
 
-  const add = () => {
-    if (!label.trim()) return;
-    setCats((arr) => [...arr, { id: 'c' + Date.now(), label: label.trim(), color }]);
-    setLabel(''); setAdding(false); toast('เพิ่มหมวดหมู่แล้ว');
+  useEffect(() => {
+    fetch('/api/categories').then(r => r.json()).then(data => setCats(data)).catch(() => {});
+  }, []);
+
+  const syncGlobal = (arr) => {
+    D.CATEGORIES = {};
+    arr.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
   };
-  const remove = (id) => { setCats((arr) => arr.filter((c) => c.id !== id)); toast('ลบหมวดหมู่แล้ว'); };
-  const recolor = (id, c) => setCats((arr) => arr.map((x) => x.id === id ? { ...x, color: c } : x));
+
+  const add = async () => {
+    if (!label.trim() || saving) return;
+    const id = 'c' + Date.now();
+    setSaving(true);
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, label: label.trim(), color }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const saved = await res.json();
+      setCats(arr => { const next = [...arr, saved]; syncGlobal(next); return next; });
+      setLabel(''); setAdding(false); toast('เพิ่มหมวดหมู่แล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setSaving(false); }
+  };
+
+  const remove = async (id) => {
+    try {
+      const res = await fetch('/api/categories/' + id, { method: 'DELETE' });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      setCats(arr => { const next = arr.filter(c => c.id !== id); syncGlobal(next); return next; });
+      toast('ลบหมวดหมู่แล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const recolor = async (id, newColor) => {
+    try {
+      await fetch('/api/categories/' + id, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color: newColor }),
+      });
+      setCats(arr => { const next = arr.map(c => c.id === id ? { ...c, color: newColor } : c); syncGlobal(next); return next; });
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -337,17 +375,33 @@ function CategoriesSection({ toast }) {
 /* SECTION: Quick replies                                                 */
 /* ====================================================================== */
 function RepliesSection({ toast }) {
-  const [list, setList] = useState([
-    'รับเรื่องแล้วครับ กำลังตรวจสอบให้นะครับ 🙏',
-    'ขออภัยในความไม่สะดวกค่ะ',
-    'ดำเนินการเรียบร้อยแล้วครับ',
-    'รบกวนแจ้งรายละเอียดเพิ่มเติมหน่อยได้ไหมคะ',
-    'ขอบคุณที่แจ้งเข้ามานะคะ 😊',
-  ]);
+  const [list, setList] = useState([]);
   const [val, setVal] = useState('');
 
-  const add = () => { if (!val.trim()) return; setList((l) => [...l, val.trim()]); setVal(''); toast('เพิ่มข้อความด่วนแล้ว'); };
-  const remove = (i) => { setList((l) => l.filter((_, x) => x !== i)); toast('ลบข้อความแล้ว'); };
+  useEffect(() => {
+    fetch('/api/quick-replies').then(r => r.json()).then(data => setList(data)).catch(() => {});
+  }, []);
+
+  const add = async () => {
+    if (!val.trim()) return;
+    try {
+      const res = await fetch('/api/quick-replies', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: val.trim() }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const saved = await res.json();
+      setList(l => [...l, saved]); setVal(''); toast('เพิ่มข้อความด่วนแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const remove = async (id) => {
+    try {
+      const res = await fetch('/api/quick-replies/' + id, { method: 'DELETE' });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      setList(l => l.filter(x => x.id !== id)); toast('ลบข้อความแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -362,10 +416,10 @@ function RepliesSection({ toast }) {
       </Card>
       <Card>
         {list.map((q, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
+          <div key={q.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
             <span style={{ width: 30, height: 30, borderRadius: 9, background: '#06C75514', color: '#06C755', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="message" size={15} /></span>
-            <span style={{ flex: 1, fontSize: 14, color: '#334155', fontWeight: 500, lineHeight: 1.5 }}>{q}</span>
-            <button onClick={() => remove(i)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
+            <span style={{ flex: 1, fontSize: 14, color: '#334155', fontWeight: 500, lineHeight: 1.5 }}>{q.text}</span>
+            <button onClick={() => remove(q.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
               onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
               <Icon name="trash" size={17} />
@@ -382,8 +436,36 @@ function RepliesSection({ toast }) {
 /* ====================================================================== */
 function NotifySection({ toast }) {
   const [n, setN] = useState({ newIssue: true, urgent: true, assigned: true, daily: false, sound: true });
-  const set = (k) => (v) => setN((s) => ({ ...s, [k]: v }));
   const [sla, setSla] = useState({ urgent: 15, high: 60, normal: 240 });
+
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then(data => {
+      if (data.notifications) setN(data.notifications);
+      if (data.sla) setSla(data.sla);
+    }).catch(() => {});
+  }, []);
+
+  const saveNotify = async (k, v) => {
+    const updated = { ...n, [k]: v };
+    setN(updated);
+    try {
+      await fetch('/api/settings/notifications', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: updated }),
+      });
+      toast(v ? 'เปิดการแจ้งเตือนแล้ว' : 'ปิดการแจ้งเตือนแล้ว');
+    } catch { toast('เกิดข้อผิดพลาด'); }
+  };
+
+  const saveSla = async () => {
+    try {
+      await fetch('/api/settings/sla', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: { urgent: Number(sla.urgent), high: Number(sla.high), normal: Number(sla.normal) } }),
+      });
+      toast('บันทึก SLA แล้ว');
+    } catch { toast('เกิดข้อผิดพลาด'); }
+  };
 
   const rows = [
     ['newIssue', 'bell', 'มีปัญหาใหม่เข้ามา', 'แจ้งเตือนทุกครั้งที่มีเรื่องใหม่จากกลุ่ม Line'],
@@ -404,7 +486,7 @@ function NotifySection({ toast }) {
               <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1E293B' }}>{title}</div>
               <div style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 500, marginTop: 1 }}>{desc}</div>
             </div>
-            <Toggle on={n[k]} onChange={(v) => { set(k)(v); toast(v ? 'เปิดการแจ้งเตือนแล้ว' : 'ปิดการแจ้งเตือนแล้ว'); }} />
+            <Toggle on={n[k]} onChange={(v) => saveNotify(k, v)} />
           </div>
         ))}
       </Card>
@@ -431,7 +513,7 @@ function NotifySection({ toast }) {
         </div>
       </Card>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <FillBtn icon="save" onClick={() => toast('บันทึกการตั้งค่าแล้ว')}>บันทึก SLA</FillBtn>
+        <FillBtn icon="save" onClick={saveSla}>บันทึก SLA</FillBtn>
       </div>
     </div>
   );

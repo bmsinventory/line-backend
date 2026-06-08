@@ -218,4 +218,84 @@ router.delete('/issues/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// =====================================================
+// CATEGORIES
+// =====================================================
+router.get('/categories', async (_req, res) => {
+  const { data, error } = await supabase.from('categories').select('*').order('sort_order');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+router.post('/categories', async (req, res) => {
+  const { id, label, color } = req.body;
+  if (!id || !label) return res.status(400).json({ error: 'id and label required' });
+  const { data: maxRow } = await supabase.from('categories').select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const sort_order = (maxRow?.sort_order || 0) + 1;
+  const { data, error } = await supabase.from('categories').insert({ id, label, color: color || '#64748B', sort_order }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+router.patch('/categories/:id', async (req, res) => {
+  const patch = {};
+  ['label', 'color'].forEach(k => { if (req.body[k] !== undefined) patch[k] = req.body[k]; });
+  const { data, error } = await supabase.from('categories').update(patch).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+router.delete('/categories/:id', async (req, res) => {
+  const { error } = await supabase.from('categories').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// =====================================================
+// QUICK REPLIES
+// =====================================================
+router.get('/quick-replies', async (_req, res) => {
+  const { data, error } = await supabase.from('quick_replies').select('*').order('sort_order');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+router.post('/quick-replies', async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const { data: maxRow } = await supabase.from('quick_replies').select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const sort_order = (maxRow?.sort_order || 0) + 1;
+  const { data, error } = await supabase.from('quick_replies').insert({ text, sort_order }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
+});
+
+router.delete('/quick-replies/:id', async (req, res) => {
+  const { error } = await supabase.from('quick_replies').delete().eq('id', parseInt(req.params.id));
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// =====================================================
+// APP SETTINGS (SLA, notifications)
+// =====================================================
+router.get('/settings', async (_req, res) => {
+  const { data, error } = await supabase.from('app_settings').select('*');
+  if (error) return res.status(500).json({ error: error.message });
+  const obj = {};
+  (data || []).forEach(row => { obj[row.key] = row.value; });
+  res.json(obj);
+});
+
+router.put('/settings/:key', async (req, res) => {
+  const { key } = req.params;
+  const { value } = req.body;
+  if (value === undefined) return res.status(400).json({ error: 'value required' });
+  const { data, error } = await supabase.from('app_settings')
+    .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 module.exports = router;

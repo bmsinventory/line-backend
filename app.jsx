@@ -384,14 +384,20 @@ function App() {
     // Boot: โหลด groups, members, issues ก่อน render UI
     async function boot() {
       try {
-        const [issuesData, groupsData, membersData] = await Promise.all([
+        const [issuesData, groupsData, membersData, categoriesData, repliesData] = await Promise.all([
           fetch('/api/issues').then((r) => r.json()),
           fetch('/api/groups').then((r) => r.json()),
           fetch('/api/members').then((r) => r.json()),
+          fetch('/api/categories').then((r) => r.json()),
+          fetch('/api/quick-replies').then((r) => r.json()),
         ]);
-        // อัปเดต global D (D เป็น reference เดิม, แค่เติม property)
         D.GROUPS  = groupsData;
         D.MEMBERS = membersData;
+        D.QUICK_REPLIES = repliesData;
+        if (categoriesData && categoriesData.length > 0) {
+          D.CATEGORIES = {};
+          categoriesData.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
+        }
         setIssues(issuesData.map(normalizeIssue));
       } catch (err) {
         console.error('[App] boot failed:', err);
