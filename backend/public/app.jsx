@@ -384,17 +384,24 @@ function App() {
     // Boot: โหลด groups, members, issues ก่อน render UI
     async function boot() {
       try {
-        const [issuesData, groupsData, membersData, categoriesData, repliesData] = await Promise.all([
+        const results = await Promise.allSettled([
           fetch('/api/issues').then((r) => r.json()),
           fetch('/api/groups').then((r) => r.json()),
           fetch('/api/members').then((r) => r.json()),
           fetch('/api/categories').then((r) => r.json()),
           fetch('/api/quick-replies').then((r) => r.json()),
         ]);
-        D.GROUPS  = groupsData;
-        D.MEMBERS = membersData;
+        const val = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
+        const issuesData     = val(0) || [];
+        const groupsData     = val(1) || [];
+        const membersData    = val(2) || [];
+        const categoriesData = val(3) || [];
+        const repliesData    = val(4) || [];
+
+        D.GROUPS        = groupsData;
+        D.MEMBERS       = membersData;
         D.QUICK_REPLIES = repliesData;
-        if (categoriesData && categoriesData.length > 0) {
+        if (categoriesData.length > 0) {
           D.CATEGORIES = {};
           categoriesData.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
         }
