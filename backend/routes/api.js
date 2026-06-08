@@ -270,6 +270,14 @@ router.post('/quick-replies', async (req, res) => {
   res.status(201).json(data);
 });
 
+router.patch('/quick-replies/:id', async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'text required' });
+  const { data, error } = await supabase.from('quick_replies').update({ text }).eq('id', parseInt(req.params.id)).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 router.delete('/quick-replies/:id', async (req, res) => {
   const { error } = await supabase.from('quick_replies').delete().eq('id', parseInt(req.params.id));
   if (error) return res.status(500).json({ error: error.message });

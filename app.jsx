@@ -309,15 +309,6 @@ function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, o
         <Icon name="bell" size={19} />
         <span style={{ position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: 99, background: '#EF4444', boxShadow: '0 0 0 2px #fff' }}></span>
       </button>
-      {view !== 'settings' && (
-        <button onClick={onAddIssue} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 7, border: 'none', borderRadius: 11, cursor: 'pointer',
-          background: '#06C755', color: '#fff', fontFamily: 'inherit', fontSize: 13.5, fontWeight: 700,
-          padding: isMobile ? '10px' : '10px 16px', boxShadow: '0 2px 10px rgba(6,199,85,.35)',
-        }}>
-          <Icon name="plus" size={18} strokeWidth={2.2} />{!isMobile && 'เพิ่มปัญหา'}
-        </button>
-      )}
       {isMobile && (
         <ProfileMenu align="right" width={230} setView={setView} onLogout={onLogout} trigger={() => (
           <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', borderRadius: '50%' }}>

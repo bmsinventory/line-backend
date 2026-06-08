@@ -283,6 +283,8 @@ function CategoriesSection({ toast }) {
   const [label, setLabel] = useState('');
   const [color, setColor] = useState('#10B981');
   const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [editLabel, setEditLabel] = useState('');
 
   useEffect(() => {
     fetch('/api/categories').then(r => r.json()).then(data => setCats(data)).catch(() => {});
@@ -316,6 +318,19 @@ function CategoriesSection({ toast }) {
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
       setCats(arr => { const next = arr.filter(c => c.id !== id); syncGlobal(next); return next; });
       toast('ลบหมวดหมู่แล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const saveLabel = async (id) => {
+    if (!editLabel.trim()) return;
+    try {
+      const res = await fetch('/api/categories/' + id, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: editLabel.trim() }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      setCats(arr => { const next = arr.map(c => c.id === id ? { ...c, label: editLabel.trim() } : c); syncGlobal(next); return next; });
+      setEditId(null); toast('แก้ไขหมวดหมู่แล้ว');
     } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
   };
 
@@ -354,11 +369,29 @@ function CategoriesSection({ toast }) {
       <Card>
         {cats.map((c, i) => (
           <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: c.color + '14', color: c.color }}>
-              <span style={{ width: 8, height: 8, borderRadius: 99, background: c.color }}></span>{c.label}
-            </span>
+            {editId === c.id ? (
+              <input autoFocus value={editLabel} onChange={(e) => setEditLabel(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveLabel(c.id); if (e.key === 'Escape') setEditId(null); }}
+                style={{ height: 34, padding: '0 12px', borderRadius: 8, border: '1.5px solid #06C755', outline: 'none', fontSize: 13, fontFamily: 'inherit', color: '#334155', minWidth: 130 }} />
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: c.color + '14', color: c.color }}>
+                <span style={{ width: 8, height: 8, borderRadius: 99, background: c.color }}></span>{c.label}
+              </span>
+            )}
             <div style={{ flex: 1 }}></div>
             <ColorPicker value={c.color} onChange={(col) => recolor(c.id, col)} />
+            {editId === c.id ? (
+              <>
+                <button onClick={() => saveLabel(c.id)} style={{ border: 'none', background: '#06C755', color: '#fff', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>บันทึก</button>
+                <button onClick={() => setEditId(null)} style={{ border: '1.5px solid #E2E8F0', background: '#fff', color: '#64748B', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>ยกเลิก</button>
+              </>
+            ) : (
+              <button onClick={() => { setEditId(c.id); setEditLabel(c.label); }} title="แก้ไขชื่อ" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; }}>
+                <Icon name="pencil" size={17} />
+              </button>
+            )}
             <button onClick={() => remove(c.id)} title="ลบ" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
               onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
@@ -377,6 +410,8 @@ function CategoriesSection({ toast }) {
 function RepliesSection({ toast }) {
   const [list, setList] = useState([]);
   const [val, setVal] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState('');
 
   useEffect(() => {
     fetch('/api/quick-replies').then(r => r.json()).then(data => setList(data)).catch(() => {});
@@ -392,6 +427,20 @@ function RepliesSection({ toast }) {
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
       const saved = await res.json();
       setList(l => [...l, saved]); setVal(''); toast('เพิ่มข้อความด่วนแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const saveText = async (id) => {
+    if (!editText.trim()) return;
+    try {
+      const res = await fetch('/api/quick-replies/' + id, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: editText.trim() }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const saved = await res.json();
+      setList(l => l.map(q => q.id === id ? { ...q, text: saved.text } : q));
+      setEditId(null); toast('แก้ไขข้อความแล้ว');
     } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
   };
 
@@ -418,7 +467,25 @@ function RepliesSection({ toast }) {
         {list.map((q, i) => (
           <div key={q.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
             <span style={{ width: 30, height: 30, borderRadius: 9, background: '#06C75514', color: '#06C755', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="message" size={15} /></span>
-            <span style={{ flex: 1, fontSize: 14, color: '#334155', fontWeight: 500, lineHeight: 1.5 }}>{q.text}</span>
+            {editId === q.id ? (
+              <input autoFocus value={editText} onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveText(q.id); if (e.key === 'Escape') setEditId(null); }}
+                style={{ flex: 1, height: 38, padding: '0 12px', borderRadius: 8, border: '1.5px solid #06C755', outline: 'none', fontFamily: 'inherit', fontSize: 14, color: '#1E293B' }} />
+            ) : (
+              <span style={{ flex: 1, fontSize: 14, color: '#334155', fontWeight: 500, lineHeight: 1.5 }}>{q.text}</span>
+            )}
+            {editId === q.id ? (
+              <>
+                <button onClick={() => saveText(q.id)} style={{ border: 'none', background: '#06C755', color: '#fff', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>บันทึก</button>
+                <button onClick={() => setEditId(null)} style={{ border: '1.5px solid #E2E8F0', background: '#fff', color: '#64748B', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>ยกเลิก</button>
+              </>
+            ) : (
+              <button onClick={() => { setEditId(q.id); setEditText(q.text); }} title="แก้ไข" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; }}>
+                <Icon name="pencil" size={17} />
+              </button>
+            )}
             <button onClick={() => remove(q.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
               onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>

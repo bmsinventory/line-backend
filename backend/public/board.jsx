@@ -1,6 +1,6 @@
 /* ===== Board view (Kanban) ===== */
 function BoardCard({ issue, onClick, onDragStart, dragging }) {
-  const group = byId(D.GROUPS, issue.groupId);
+  const group = byId(D.GROUPS, issue.groupId) || { initials: '??', color: '#94A3B8', name: 'ไม่ระบุกลุ่ม' };
   const assignee = issue.assigneeId ? byId(D.MEMBERS, issue.assigneeId) : null;
   return (
     <div draggable onDragStart={onDragStart} onClick={onClick} style={{
