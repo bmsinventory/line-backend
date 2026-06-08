@@ -11,15 +11,15 @@ app.use('/webhook/line', express.raw({ type: '*/*' }));
 app.use(express.json());
 app.use(cors());
 
-// Serve frontend (HTML + JSX files อยู่ใน parent directory)
-app.use(express.static(path.join(__dirname, '..')));
+// Serve frontend (HTML + JSX files อยู่ใน ./public)
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/webhook', require('./routes/webhook'));
 app.use('/api', require('./routes/api'));
 
 // Fallback: ส่ง index.html สำหรับทุก route ที่ไม่ใช่ /api หรือ /webhook
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'ระบบติดตามปัญหาจาก Line.html'));
+  res.sendFile(path.join(__dirname, 'public', 'ระบบติดตามปัญหาจาก Line.html'));
 });
 
 const PORT = process.env.PORT || 3000;
