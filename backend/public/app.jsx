@@ -41,18 +41,20 @@ function normalizeIssue(row) {
 }
 
 /* ---------- profile menu (shared) ---------- */
-function ProfileMenu({ trigger, align = 'left', width = 220, setView, onLogout, drop = 'down' }) {
+function ProfileMenu({ trigger, align = 'left', width = 220, setView, onLogout, drop = 'down', currentUser }) {
+  const initials = currentUser?.name ? currentUser.name.slice(0, 2) : 'ME';
+  const isAdmin = currentUser?.role === 'แอดมิน';
   return (
     <Dropdown align={align} width={width} drop={drop} trigger={trigger}>
       {(close) => <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '8px 10px 12px', borderBottom: '1px solid #F1F5F9', marginBottom: 6 }}>
-          <Avatar initials="ME" color="#06C755" size={40} />
+          <Avatar initials={initials} color="#06C755" size={40} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>คุณ (แอดมิน)</div>
-            <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>admin@line-track.co.th</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser?.name || 'ผู้ใช้งาน'}</div>
+            <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUser?.role || ''}</div>
           </div>
         </div>
-        <MenuItem onClick={() => { setView('settings'); close(); }}><Icon name="settings" size={17} style={{ color: '#64748B' }} />ตั้งค่าระบบ</MenuItem>
+        {isAdmin && <MenuItem onClick={() => { setView('settings'); close(); }}><Icon name="settings" size={17} style={{ color: '#64748B' }} />ตั้งค่าระบบ</MenuItem>}
         <MenuItem onClick={() => { setView('settings'); close(); }}><Icon name="user" size={17} style={{ color: '#64748B' }} />โปรไฟล์ของฉัน</MenuItem>
         <div style={{ height: 1, background: '#F1F5F9', margin: '6px 4px' }}></div>
         <MenuItem onClick={() => { close(); onLogout(); }} color="#DC2626"><Icon name="logout" size={17} />ออกจากระบบ</MenuItem>
@@ -62,7 +64,9 @@ function ProfileMenu({ trigger, align = 'left', width = 220, setView, onLogout, 
 }
 
 /* ---------- left nav rail ---------- */
-function NavRail({ view, setView, isMobile, openCount, onLogout }) {
+function NavRail({ view, setView, isMobile, openCount, onLogout, currentUser }) {
+  const isAdmin = currentUser?.role === 'แอดมิน';
+  const initials = currentUser?.name ? currentUser.name.slice(0, 2) : 'ME';
   if (isMobile) {
     return (
       <div style={{
@@ -111,18 +115,20 @@ function NavRail({ view, setView, isMobile, openCount, onLogout }) {
           );
         })}
       </div>
-      <button onClick={() => setView('settings')} title="ตั้งค่าระบบ" style={{
-        border: 'none', cursor: 'pointer', padding: 8, marginBottom: 8, borderRadius: 13,
-        background: view === 'settings' ? 'rgba(6,199,85,.18)' : 'transparent',
-        color: view === 'settings' ? '#34E37D' : '#7DA396', display: 'flex',
-      }}
-        onMouseEnter={(e) => { if (view !== 'settings') e.currentTarget.style.color = '#B5CFC4'; }}
-        onMouseLeave={(e) => { if (view !== 'settings') e.currentTarget.style.color = '#7DA396'; }}>
-        <Icon name="settings" size={22} />
-      </button>
-      <ProfileMenu align="left" width={230} drop="up" setView={setView} onLogout={onLogout} trigger={() => (
+      {isAdmin && (
+        <button onClick={() => setView('settings')} title="ตั้งค่าระบบ" style={{
+          border: 'none', cursor: 'pointer', padding: 8, marginBottom: 8, borderRadius: 13,
+          background: view === 'settings' ? 'rgba(6,199,85,.18)' : 'transparent',
+          color: view === 'settings' ? '#34E37D' : '#7DA396', display: 'flex',
+        }}
+          onMouseEnter={(e) => { if (view !== 'settings') e.currentTarget.style.color = '#B5CFC4'; }}
+          onMouseLeave={(e) => { if (view !== 'settings') e.currentTarget.style.color = '#7DA396'; }}>
+          <Icon name="settings" size={22} />
+        </button>
+      )}
+      <ProfileMenu align="left" width={230} drop="up" setView={setView} onLogout={onLogout} currentUser={currentUser} trigger={() => (
         <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', borderRadius: '50%' }}>
-          <Avatar initials="ME" color="#06C755" size={38} ring />
+          <Avatar initials={initials} color="#06C755" size={38} ring />
         </button>
       )} />
     </div>
@@ -283,7 +289,7 @@ function GroupsView({ issues, isMobile }) {
 }
 
 /* ---------- top bar ---------- */
-function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, onAddIssue }) {
+function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, onAddIssue, currentUser }) {
   const titles = { inbox: 'กล่องรวมปัญหา', board: 'บอร์ดงาน', dashboard: 'แดชบอร์ดภาพรวม', groups: 'กลุ่ม Line ที่เชื่อมต่อ', settings: 'ตั้งค่าระบบ' };
   const subs = {
     inbox:     'ทุกข้อความแจ้งปัญหาจากทุกกลุ่ม รวมที่เดียว',
@@ -310,9 +316,9 @@ function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, o
         <span style={{ position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: 99, background: '#EF4444', boxShadow: '0 0 0 2px #fff' }}></span>
       </button>
       {isMobile && (
-        <ProfileMenu align="right" width={230} setView={setView} onLogout={onLogout} trigger={() => (
+        <ProfileMenu align="right" width={230} setView={setView} onLogout={onLogout} currentUser={currentUser} trigger={() => (
           <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', borderRadius: '50%' }}>
-            <Avatar initials="ME" color="#06C755" size={38} ring />
+            <Avatar initials={currentUser?.name ? currentUser.name.slice(0, 2) : 'ME'} color="#06C755" size={38} ring />
           </button>
         )} />
       )}
@@ -351,13 +357,14 @@ function LoadingScreen() {
 /* ---------- root ---------- */
 function App() {
   const isMobile = useIsMobile();
-  const [booted, setBooted]   = useState(false);
-  const [authed, setAuthed]   = useState(false);
-  const [view, setView]       = useState('inbox');
-  const [issues, setIssues]   = useState([]);
-  const [selId, setSel]       = useState(null);
-  const [search, setSearch]   = useState('');
-  const [toast, setToast]     = useState(null);
+  const [booted, setBooted]         = useState(false);
+  const [authed, setAuthed]         = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [view, setView]             = useState('inbox');
+  const [issues, setIssues]         = useState([]);
+  const [selId, setSel]             = useState(null);
+  const [search, setSearch]         = useState('');
+  const [toast, setToast]           = useState(null);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
@@ -414,6 +421,8 @@ function App() {
       try {
         const verifyRes = await fetch('/api/auth/verify');
         if (verifyRes.ok) {
+          const userData = await verifyRes.json();
+          setCurrentUser({ memberId: userData.memberId, name: userData.name, role: userData.role });
           await loadData();
           setAuthed(true);
         }
@@ -481,6 +490,13 @@ function App() {
 
   /* ---- Login / Logout ---- */
   const handleLogin = async () => {
+    try {
+      const verifyRes = await fetch('/api/auth/verify');
+      if (verifyRes.ok) {
+        const userData = await verifyRes.json();
+        setCurrentUser({ memberId: userData.memberId, name: userData.name, role: userData.role });
+      }
+    } catch {}
     await loadData();
     setAuthed(true);
   };
@@ -488,6 +504,7 @@ function App() {
   const doLogout = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
     setAuthed(false);
+    setCurrentUser(null);
     setIssues([]);
     setView('inbox');
     setSel(null);
@@ -511,9 +528,9 @@ function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#EEF2F1' }}>
-      {!isMobile && <NavRail view={view} setView={setView} isMobile={false} openCount={openCount} onLogout={doLogout} />}
+      {!isMobile && <NavRail view={view} setView={setView} isMobile={false} openCount={openCount} onLogout={doLogout} currentUser={currentUser} />}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, paddingBottom: isMobile ? 64 : 0 }}>
-        <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} />
+        <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} currentUser={currentUser} />
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} />}
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}
@@ -522,7 +539,7 @@ function App() {
           {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} />}
         </div>
       </div>
-      {isMobile && <NavRail view={view} setView={setView} isMobile={true} openCount={openCount} onLogout={doLogout} />}
+      {isMobile && <NavRail view={view} setView={setView} isMobile={true} openCount={openCount} onLogout={doLogout} currentUser={currentUser} />}
     </div>
   );
 }

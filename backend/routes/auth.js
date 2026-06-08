@@ -1,22 +1,23 @@
-const express = require('express');
-const router  = express.Router();
-const crypto  = require('crypto');
-const { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE } = require('../lib/auth');
-
-const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@line-track.co.th';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin1234';
+const express  = require('express');
+const router   = express.Router();
+const crypto   = require('crypto');
+const supabase = require('../lib/supabase');
+const { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE, verifyPassword } = require('../lib/auth');
 
 // LINE Login channel config
 const LINE_CHANNEL_ID     = process.env.LINE_LOGIN_CHANNEL_ID;
 const LINE_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET;
 const LINE_REDIRECT_URI   = process.env.LINE_LOGIN_REDIRECT_URI;
-// LINE user IDs ที่อนุญาตให้ login (คั่นด้วย comma) — ว่างหมายถึงอนุญาตทุก LINE account
-const ALLOWED_LINE_IDS = (process.env.ADMIN_LINE_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+// LINE user IDs เพิ่มเติม (env var) ที่ได้รับสิทธิ์แอดมิน (นอกเหนือจาก members table)
+const EXTRA_ADMIN_IDS = (process.env.ADMIN_LINE_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 
-// ข้อความ error ที่แสดงบนหน้า login
+// super-admin fallback (env vars) สำหรับ bootstrap ระบบครั้งแรก
+const SA_EMAIL    = (process.env.ADMIN_EMAIL    || 'admin@line-track.co.th').toLowerCase();
+const SA_PASSWORD =  process.env.ADMIN_PASSWORD || 'admin1234';
+
 const LINE_ERROR_MSGS = {
   line_not_configured: 'LINE Login ยังไม่ได้ตั้งค่า (ตรวจสอบ LINE_LOGIN_CHANNEL_ID)',
-  unauthorized:        'LINE ID นี้ไม่มีสิทธิ์เข้าระบบ กรุณาติดต่อผู้ดูแล',
+  unauthorized:        'LINE ID นี้ไม่มีสิทธิ์เข้าระบบ กรุณาให้แอดมินเพิ่มใน Members และผูก Line ID',
   invalid_state:       'เกิดข้อผิดพลาดในการยืนยันตัวตน กรุณาลองใหม่',
   token_failed:        'แลก token จาก LINE ไม่สำเร็จ',
   profile_failed:      'ดึงข้อมูล LINE profile ไม่สำเร็จ',
@@ -34,21 +35,45 @@ function setCookieHeader(res, token) {
   });
 }
 
+function makeToken(memberId, name, role) {
+  return sign({ memberId, name, role, exp: Date.now() + COOKIE_MAXAGE });
+}
+
 // =====================================================
-// Email / Password login
+// POST /api/auth/login — อีเมล / เบอร์โทร + รหัสผ่าน
 // =====================================================
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { email = '', password = '' } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ error: 'กรุณากรอกอีเมลและรหัสผ่าน' });
+  const identifier = email.trim().toLowerCase();
+  if (!identifier || !password)
+    return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
 
-  const emailOk = email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
-  const passOk  = password === ADMIN_PASSWORD;
-  if (!emailOk || !passOk)
-    return res.status(401).json({ error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+  // 1. ค้นหาใน members table (email หรือ phone ตรงกัน)
+  try {
+    const { data: members } = await supabase
+      .from('members')
+      .select('id, name, role, password_hash, email, phone');
 
-  setCookieHeader(res, sign({ email: ADMIN_EMAIL, exp: Date.now() + COOKIE_MAXAGE }));
-  res.json({ ok: true });
+    const member = (members || []).find(m =>
+      (m.email && m.email.toLowerCase() === identifier) ||
+      (m.phone && m.phone.replace(/\D/g, '') === identifier.replace(/\D/g, ''))
+    );
+
+    if (member && verifyPassword(password, member.password_hash)) {
+      setCookieHeader(res, makeToken(member.id, member.name, member.role));
+      return res.json({ ok: true, name: member.name, role: member.role });
+    }
+  } catch (err) {
+    console.error('[Auth login] DB error:', err.message);
+  }
+
+  // 2. super-admin fallback (env vars) — สำหรับ bootstrap ครั้งแรก
+  if (identifier === SA_EMAIL && password === SA_PASSWORD) {
+    setCookieHeader(res, makeToken('__admin__', 'Super Admin', 'แอดมิน'));
+    return res.json({ ok: true, name: 'Super Admin', role: 'แอดมิน' });
+  }
+
+  res.status(401).json({ error: 'อีเมล/เบอร์โทรหรือรหัสผ่านไม่ถูกต้อง' });
 });
 
 // =====================================================
@@ -62,7 +87,6 @@ router.get('/line', (req, res) => {
   }
   const state = crypto.randomBytes(16).toString('hex');
   res.cookie('lt_oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000, path: '/', sameSite: 'lax' });
-
   const params = new URLSearchParams({
     response_type: 'code',
     client_id:     LINE_CHANNEL_ID,
@@ -76,8 +100,7 @@ router.get('/line', (req, res) => {
 // GET /api/auth/line/callback — LINE redirect กลับมาพร้อม code
 router.get('/line/callback', async (req, res) => {
   const { code, state, error } = req.query;
-
-  if (error) return res.redirect('/?auth_error=' + encodeURIComponent(error === 'access_denied' ? 'access_denied' : 'server_error'));
+  if (error) return res.redirect('/?auth_error=' + (error === 'access_denied' ? 'access_denied' : 'server_error'));
   if (!code) return res.redirect('/?auth_error=server_error');
 
   // ตรวจ CSRF state
@@ -88,47 +111,50 @@ router.get('/line/callback', async (req, res) => {
   res.clearCookie('lt_oauth_state', { path: '/' });
 
   try {
-    // 1. แลก code เป็น access_token
+    // แลก code เป็น access_token
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:    new URLSearchParams({
-        grant_type:    'authorization_code',
-        code,
-        redirect_uri:  LINE_REDIRECT_URI,
-        client_id:     LINE_CHANNEL_ID,
-        client_secret: LINE_CHANNEL_SECRET,
+      body: new URLSearchParams({
+        grant_type: 'authorization_code', code,
+        redirect_uri: LINE_REDIRECT_URI,
+        client_id: LINE_CHANNEL_ID, client_secret: LINE_CHANNEL_SECRET,
       }).toString(),
     });
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
-      console.error('[Auth LINE] token exchange failed:', tokenData);
+      console.error('[Auth LINE] token failed:', tokenData);
       return res.redirect('/?auth_error=token_failed');
     }
 
-    // 2. ดึง profile
+    // ดึง profile
     const profileRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: 'Bearer ' + tokenData.access_token },
     });
     const profile = await profileRes.json();
-    if (!profile.userId) {
-      console.error('[Auth LINE] profile failed:', profile);
-      return res.redirect('/?auth_error=profile_failed');
-    }
+    if (!profile.userId) return res.redirect('/?auth_error=profile_failed');
 
-    // 3. ตรวจสิทธิ์ — ถ้าตั้ง ADMIN_LINE_USER_IDS ต้องอยู่ใน list
-    if (ALLOWED_LINE_IDS.length > 0 && !ALLOWED_LINE_IDS.includes(profile.userId)) {
+    // ตรวจ members table ก่อน
+    const { data: member } = await supabase
+      .from('members')
+      .select('id, name, role')
+      .eq('line_user_id', profile.userId)
+      .maybeSingle();
+
+    let loginPayload;
+    if (member) {
+      // พบใน members table → login ตาม role นั้น
+      loginPayload = { memberId: member.id, name: member.name, role: member.role };
+    } else if (EXTRA_ADMIN_IDS.includes(profile.userId)) {
+      // อยู่ใน env var whitelist → super-admin
+      loginPayload = { memberId: 'line:' + profile.userId, name: profile.displayName, role: 'แอดมิน' };
+    } else {
       console.warn('[Auth LINE] unauthorized userId:', profile.userId);
       return res.redirect('/?auth_error=unauthorized');
     }
 
-    // 4. สร้าง session cookie → redirect กลับแอป
-    setCookieHeader(res, sign({
-      lineUserId:  profile.userId,
-      displayName: profile.displayName,
-      exp:         Date.now() + COOKIE_MAXAGE,
-    }));
-    console.log(`[Auth LINE] logged in: ${profile.displayName} (${profile.userId})`);
+    setCookieHeader(res, makeToken(loginPayload.memberId, loginPayload.name, loginPayload.role));
+    console.log(`[Auth LINE] logged in: ${loginPayload.name} (${loginPayload.role})`);
     res.redirect('/');
 
   } catch (err) {
@@ -137,11 +163,11 @@ router.get('/line/callback', async (req, res) => {
   }
 });
 
-// GET /api/auth/line/errors — ส่ง error messages ให้ frontend ใช้
+// GET /api/auth/line/errors
 router.get('/line/errors', (_req, res) => res.json(LINE_ERROR_MSGS));
 
 // =====================================================
-// Logout
+// POST /api/auth/logout
 // =====================================================
 router.post('/logout', (_req, res) => {
   res.clearCookie(COOKIE_NAME, { path: '/' });
@@ -149,13 +175,13 @@ router.post('/logout', (_req, res) => {
 });
 
 // =====================================================
-// Verify session
+// GET /api/auth/verify — ตรวจสอบ session และคืน role
 // =====================================================
 router.get('/verify', (req, res) => {
   const cookies = parseCookies(req);
   const payload = verify(cookies[COOKIE_NAME]);
   if (!payload) return res.status(401).json({ error: 'ไม่ได้เข้าสู่ระบบ' });
-  res.json({ ok: true, email: payload.email, displayName: payload.displayName });
+  res.json({ ok: true, memberId: payload.memberId, name: payload.name, role: payload.role });
 });
 
 module.exports = router;

@@ -168,19 +168,36 @@ function TeamSection({ toast }) {
   const [lineIdDraft, setLineIdDraft] = useState('');
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [pwId, setPwId] = useState(null);
+  const [pwValue, setPwValue] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
   const syncGlobal = (arr) => { D.MEMBERS = arr; };
 
   const openLineId = (m) => {
     setEditId(null);
+    setPwId(null);
     setExpandedId(m.id === expandedId ? null : m.id);
     setLineIdDraft(m.line_user_id || '');
   };
   const openEdit = (m) => {
     setExpandedId(null);
+    setPwId(null);
     setEditId(m.id === editId ? null : m.id);
     setEditName(m.name);
     setEditColor(m.color);
+    setEditEmail(m.email || '');
+    setEditPhone(m.phone || '');
+  };
+  const openPw = (m) => {
+    setExpandedId(null);
+    setEditId(null);
+    setPwId(m.id === pwId ? null : m.id);
+    setPwValue('');
+    setPwConfirm('');
   };
 
   const add = async () => {
@@ -252,13 +269,31 @@ function TeamSection({ toast }) {
       const res = await fetch(`/api/members/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName.trim(), color: editColor, initials }),
+        body: JSON.stringify({ name: editName.trim(), color: editColor, initials, email: editEmail.trim() || null, phone: editPhone.trim() || null }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
-      setMembers((arr) => { const next = arr.map((m) => m.id === id ? { ...m, name: editName.trim(), color: editColor, initials } : m); syncGlobal(next); return next; });
+      const updated = await res.json();
+      setMembers((arr) => { const next = arr.map((m) => m.id === id ? { ...m, name: editName.trim(), color: editColor, initials, email: updated.email || null, phone: updated.phone || null } : m); syncGlobal(next); return next; });
       setEditId(null);
       toast('แก้ไขข้อมูลสมาชิกแล้ว');
     } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const savePassword = async (id) => {
+    if (pwValue !== pwConfirm) { toast('รหัสผ่านไม่ตรงกัน'); return; }
+    if (pwValue.length < 6) { toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
+    setPwSaving(true);
+    try {
+      const res = await fetch(`/api/members/${id}/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwValue }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      setPwId(null);
+      toast('ตั้งรหัสผ่านแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setPwSaving(false); }
   };
 
   return (
@@ -320,6 +355,12 @@ function TeamSection({ toast }) {
                 onMouseLeave={(e) => { if (editId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
                 <Icon name="pencil" size={17} />
               </button>
+              {/* ปุ่มตั้งรหัสผ่าน */}
+              <button onClick={() => openPw(m)} title="ตั้งรหัสผ่าน" style={{ border: 'none', background: pwId === m.id ? '#F0FDF4' : 'transparent', cursor: 'pointer', color: pwId === m.id ? '#16A34A' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={(e) => { if (pwId !== m.id) { e.currentTarget.style.color = '#16A34A'; e.currentTarget.style.background = '#F0FDF4'; } }}
+                onMouseLeave={(e) => { if (pwId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
+                <Icon name="lock" size={17} />
+              </button>
               {/* ปุ่มผูก Line ID */}
               <button onClick={() => openLineId(m)} title="ผูก Line ID" style={{ border: 'none', background: expandedId === m.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', color: expandedId === m.id ? '#3B82F6' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
                 onMouseEnter={(e) => { if (expandedId !== m.id) { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; } }}
@@ -346,6 +387,18 @@ function TeamSection({ toast }) {
                       style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 180, boxSizing: 'border-box' }} />
                   </div>
                   <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>อีเมล</div>
+                    <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)}
+                      placeholder="email@example.com"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 190, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>เบอร์โทรศัพท์</div>
+                    <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="0812345678"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 150, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>สี</div>
                     <ColorPicker value={editColor} onChange={setEditColor} />
                   </div>
@@ -370,6 +423,31 @@ function TeamSection({ toast }) {
                 </div>
                 <FillBtn icon="check" onClick={() => saveLineId(m.id)}>บันทึก</FillBtn>
                 <button onClick={() => setExpandedId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+              </div>
+            )}
+
+            {/* Password panel */}
+            {pwId === m.id && (
+              <div style={{ padding: '12px 18px 16px', background: '#F0FDF4', borderTop: '1px solid #BBF7D0', animation: 'pop .12s ease-out' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#15803D', marginBottom: 6 }}>รหัสผ่านใหม่</div>
+                    <input type="password" autoFocus value={pwValue} onChange={(e) => setPwValue(e.target.value)}
+                      placeholder="อย่างน้อย 6 ตัวอักษร"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #22C55E', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 200, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#15803D', marginBottom: 6 }}>ยืนยันรหัสผ่าน</div>
+                    <input type="password" value={pwConfirm} onChange={(e) => setPwConfirm(e.target.value)}
+                      placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid ' + (pwConfirm && pwValue !== pwConfirm ? '#EF4444' : '#22C55E'), outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 200, boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}></div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => savePassword(m.id)} disabled={pwSaving} style={{ height: 40, padding: '0 16px', border: 'none', background: '#16A34A', color: '#fff', cursor: pwSaving ? 'default' : 'pointer', borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', opacity: pwSaving ? 0.7 : 1 }}>{pwSaving ? 'กำลังบันทึก…' : 'ตั้งรหัสผ่าน'}</button>
+                    <button onClick={() => setPwId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

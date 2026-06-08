@@ -61,12 +61,12 @@ router.get('/members', async (_req, res) => {
 });
 
 router.post('/members', async (req, res) => {
-  const { id, name, role, color, initials } = req.body;
+  const { id, name, role, color, initials, email, phone } = req.body;
   if (!id || !name) return res.status(400).json({ error: 'id and name required' });
-  const { data, error } = await supabase
-    .from('members')
-    .insert({ id, name, role, color: color || '#64748B', initials: initials || name.slice(0, 2) })
-    .select().single();
+  const row = { id, name, role, color: color || '#64748B', initials: initials || name.slice(0, 2) };
+  if (email) row.email = email.trim().toLowerCase();
+  if (phone) row.phone = phone.trim();
+  const { data, error } = await supabase.from('members').insert(row).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -74,13 +74,27 @@ router.post('/members', async (req, res) => {
 router.patch('/members/:id', async (req, res) => {
   const { id } = req.params;
   const patch = {};
-  ['name','role','color','initials','line_user_id'].forEach(k => {
-    if (req.body[k] !== undefined) patch[k] = req.body[k];
+  ['name','role','color','initials','line_user_id','email','phone'].forEach(k => {
+    if (req.body[k] !== undefined) patch[k] = req.body[k] === '' ? null : req.body[k];
   });
+  // normalize email lowercase
+  if (patch.email) patch.email = patch.email.toLowerCase();
   const { data, error } = await supabase
     .from('members').update(patch).eq('id', id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// POST /api/members/:id/password — ตั้ง/เปลี่ยนรหัสผ่านสมาชิก
+router.post('/members/:id/password', async (req, res) => {
+  const { password } = req.body;
+  if (!password || password.length < 6)
+    return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' });
+  const { hashPassword } = require('../lib/auth');
+  const password_hash = hashPassword(password);
+  const { error } = await supabase.from('members').update({ password_hash }).eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
 router.delete('/members/:id', async (req, res) => {

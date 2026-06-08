@@ -1,9 +1,10 @@
 const crypto = require('crypto');
 
-const SECRET       = process.env.JWT_SECRET    || 'line-tracker-secret-change-in-env';
-const COOKIE_NAME  = 'lt_sess';
+const SECRET        = process.env.JWT_SECRET || 'line-tracker-secret-change-in-env';
+const COOKIE_NAME   = 'lt_sess';
 const COOKIE_MAXAGE = 30 * 24 * 60 * 60 * 1000; // 30 วัน (ms)
 
+/* ---- token sign / verify ---- */
 function sign(payload) {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig  = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
@@ -25,6 +26,7 @@ function verify(token) {
   } catch { return null; }
 }
 
+/* ---- cookie parser ---- */
 function parseCookies(req) {
   const cookies = {};
   (req.headers.cookie || '').split(';').forEach(pair => {
@@ -34,4 +36,19 @@ function parseCookies(req) {
   return cookies;
 }
 
-module.exports = { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE };
+/* ---- password hash (PBKDF2 — built-in crypto, no extra package) ---- */
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!stored) return false;
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const check = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return check === hash;
+}
+
+module.exports = { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE, hashPassword, verifyPassword };

@@ -144,7 +144,7 @@ function Login({ onLogin }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Field icon="mail" label="อีเมล" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.co.th" />
+          <Field icon="mail" label="อีเมล / เบอร์โทรศัพท์" type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.co.th หรือ 081-234-5678" />
           <Field
             icon="lock" label="รหัสผ่าน" type={show ? 'text' : 'password'} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••"
             trailing={
