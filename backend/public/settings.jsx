@@ -772,8 +772,28 @@ function NotifySection({ toast }) {
 /* ====================================================================== */
 /* SECTION: Line connection                                               */
 /* ====================================================================== */
+function UrlRow({ label, url, toast }) {
+  const copy = () => {
+    navigator.clipboard.writeText(url).then(() => toast('คัดลอก ' + label + ' แล้ว')).catch(() => toast('คัดลอกไม่สำเร็จ'));
+  };
+  return (
+    <div style={{ marginBottom: 0 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#7DA396', marginBottom: 7 }}>{label}</div>
+      <div style={{ background: '#0B3D2E', borderRadius: 12, padding: '12px 15px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Icon name="link" size={16} style={{ color: '#7DA396', flexShrink: 0 }} />
+        <span style={{ flex: 1, fontSize: 12, color: '#A7CDBE', fontWeight: 600, fontFamily: 'monospace', wordBreak: 'break-all' }}>{url}</span>
+        <button onClick={copy} style={{ border: 'none', background: '#06C755', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>คัดลอก</button>
+      </div>
+    </div>
+  );
+}
+
 function ConnectionSection({ toast }) {
-  const [groups, setGroups] = useState(() => D.GROUPS.map((g) => ({ ...g, connected: true })));
+  const origin = window.location.origin;
+  const webhookUrl    = origin + '/api/webhook';
+  const callbackUrl   = origin + '/api/auth/line/callback';
+
+  const [groups, setGroups] = useState(() => D.GROUPS.map((g) => ({ ...g })));
   const toggle = (id) => setGroups((arr) => arr.map((g) => {
     if (g.id !== id) return g;
     toast(g.connected ? 'ตัดการเชื่อมต่อแล้ว' : 'เชื่อมต่อใหม่แล้ว');
@@ -788,32 +808,41 @@ function ConnectionSection({ toast }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
           <span style={{ width: 46, height: 46, borderRadius: 13, background: '#06C755', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(6,199,85,.4)' }}><LineLogo size={26} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif' }}>@linetrack-support</div>
-            <div style={{ fontSize: 12.5, color: '#06C755', fontWeight: 700, marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: 99, background: '#06C755' }}></span>LINE Official Account · เชื่อมต่อแล้ว</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif' }}>LINE Official Account (Messaging API)</div>
+            <div style={{ fontSize: 12.5, color: '#64748B', fontWeight: 500, marginTop: 2 }}>ตั้งค่า Webhook URL ใน LINE Developers Console → Messaging API</div>
           </div>
         </div>
-        <div style={{ background: '#0B3D2E', borderRadius: 12, padding: '13px 15px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Icon name="link" size={16} style={{ color: '#7DA396' }} />
-          <span style={{ flex: 1, fontSize: 12.5, color: '#A7CDBE', fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>https://api.line-track.co.th/webhook/v2/inbound</span>
-          <button onClick={() => toast('คัดลอก Webhook URL แล้ว')} style={{ border: 'none', background: '#06C755', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap' }}>คัดลอก</button>
-        </div>
+        <UrlRow label="Webhook URL (ใส่ใน LINE Developers Console)" url={webhookUrl} toast={toast} />
       </Card>
 
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#94A3B8', padding: '0 4px', letterSpacing: '.02em' }}>กลุ่มและ OpenChat ({groups.filter((g) => g.connected).length}/{groups.length} เชื่อมต่อ)</div>
+      <Card style={{ padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+          <span style={{ width: 46, height: 46, borderRadius: 13, background: '#3B82F6', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(59,130,246,.4)' }}><Icon name="user" size={22} /></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif' }}>LINE Login</div>
+            <div style={{ fontSize: 12.5, color: '#64748B', fontWeight: 500, marginTop: 2 }}>ตั้งค่า Callback URL ใน LINE Developers Console → LINE Login → Callback URL</div>
+          </div>
+        </div>
+        <UrlRow label="Callback URL (ใส่ใน LINE Login Channel)" url={callbackUrl} toast={toast} />
+      </Card>
+
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#94A3B8', padding: '0 4px', letterSpacing: '.02em' }}>กลุ่มและ OpenChat ({groups.length} กลุ่ม)</div>
       <Card>
         {groups.map((g, i) => (
-          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none', opacity: g.connected ? 1 : 0.6 }}>
+          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
             <Avatar initials={g.initials} color={g.color} size={40} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: g.connected ? '#06C755' : '#94A3B8', marginTop: 2 }}>{g.type === 'openchat' ? 'OpenChat' : 'กลุ่ม Line'} · {g.connected ? 'เชื่อมต่อแล้ว' : 'ตัดการเชื่อมต่อ'}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: g.line_group_id ? '#06C755' : '#94A3B8', marginTop: 2 }}>
+                {g.type === 'openchat' ? 'OpenChat' : 'กลุ่ม Line'} · {g.line_group_id ? 'เชื่อมต่อแล้ว' : 'ยังไม่เชื่อมต่อ'}
+              </div>
             </div>
-            <GhostBtn onClick={() => toggle(g.id)} danger={g.connected} color="#06C755">{g.connected ? 'ตัดการเชื่อมต่อ' : 'เชื่อมต่อ'}</GhostBtn>
+            {g.line_group_id && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#06C755', background: '#06C75514', padding: '3px 10px', borderRadius: 6 }}>Active</span>
+            )}
           </div>
         ))}
-        <button style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '15px', border: 'none', borderTop: '1px solid #F1F5F9', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13.5, fontWeight: 700, color: '#06C755' }}>
-          <Icon name="plus" size={17} strokeWidth={2.2} />เชื่อมต่อกลุ่มใหม่
-        </button>
+        {groups.length === 0 && <div style={{ padding: '24px', textAlign: 'center', color: '#CBD5E1', fontSize: 13, fontWeight: 600 }}>ยังไม่มีกลุ่มที่เชื่อมต่อ</div>}
       </Card>
     </div>
   );
