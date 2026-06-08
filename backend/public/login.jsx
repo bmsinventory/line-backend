@@ -36,7 +36,22 @@ function Login({ onLogin }) {
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [lineLoading, setLineLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // ตรวจ error จาก LINE OAuth callback (URL param ?auth_error=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('auth_error');
+    if (!authError) return;
+    // ดึงข้อความ error จาก backend
+    fetch('/api/auth/line/errors')
+      .then(r => r.json())
+      .then(msgs => setError(msgs[authError] || 'เข้าสู่ระบบผ่าน LINE ไม่สำเร็จ'))
+      .catch(() => setError('เข้าสู่ระบบผ่าน LINE ไม่สำเร็จ'));
+    // ลบ query string ออกจาก URL
+    window.history.replaceState({}, '', '/');
+  }, []);
 
   const submit = async () => {
     if (loading) return;
@@ -56,6 +71,11 @@ function Login({ onLogin }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loginWithLine = () => {
+    setLineLoading(true);
+    window.location.href = '/api/auth/line';
   };
 
   const stats = [
@@ -141,13 +161,28 @@ function Login({ onLogin }) {
             </div>
           )}
 
-          <button onClick={submit} onKeyDown={(e) => e.key === 'Enter' && submit()} disabled={loading} style={{
-            height: 49, border: 'none', borderRadius: 12, cursor: loading ? 'default' : 'pointer', fontFamily: 'inherit',
+          <button onClick={submit} disabled={loading || lineLoading} style={{
+            height: 49, border: 'none', borderRadius: 12, cursor: (loading || lineLoading) ? 'default' : 'pointer', fontFamily: 'inherit',
             fontSize: 15, fontWeight: 700, color: '#fff', background: '#06C755', marginTop: 2,
             boxShadow: '0 4px 14px rgba(6,199,85,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, whiteSpace: 'nowrap',
-            opacity: loading ? 0.8 : 1, transition: 'all .15s',
+            opacity: (loading || lineLoading) ? 0.7 : 1, transition: 'all .15s',
           }}>
             {loading ? <Spinner /> : <>เข้าสู่ระบบ <Icon name="chevronRight" size={17} strokeWidth={2.4} /></>}
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 0' }}>
+            <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
+            <span style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 600 }}>หรือ</span>
+            <span style={{ flex: 1, height: 1, background: '#E2E8F0' }}></span>
+          </div>
+
+          <button onClick={loginWithLine} disabled={loading || lineLoading} style={{
+            height: 49, border: '1.5px solid #06C755', borderRadius: 12, cursor: (loading || lineLoading) ? 'default' : 'pointer', fontFamily: 'inherit',
+            fontSize: 14.5, fontWeight: 700, color: '#06C755', background: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, whiteSpace: 'nowrap',
+            opacity: (loading || lineLoading) ? 0.7 : 1, transition: 'all .15s',
+          }}>
+            {lineLoading ? <Spinner color="#06C755" /> : <><LineLogo size={20} /> เข้าสู่ระบบด้วย LINE</>}
           </button>
         </div>
 
