@@ -60,10 +60,32 @@ router.post('/line', async (req, res) => {
         .eq('line_group_id', lineGroupId)
         .maybeSingle();
 
+      let groupId;
       if (!group) {
-        // กลุ่มยังไม่ได้ลงทะเบียนในระบบ — ข้าม
-        console.log(`[Webhook] Unknown group: ${lineGroupId}`);
-        continue;
+        // กลุ่มยังไม่มีในระบบ — ดึงชื่อจาก Line แล้วสร้างอัตโนมัติ
+        let groupName = lineGroupId;
+        try {
+          const summary = await lineClient.getGroupSummary(lineGroupId);
+          groupName = summary.groupName || groupName;
+        } catch { /* ถ้าดึงไม่ได้ ใช้ groupId แทนชื่อ */ }
+
+        const initials = groupName.slice(0, 2);
+        const colors = ['#06C755','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#0EA5E9'];
+        let h = 0;
+        for (const c of lineGroupId) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+        const color = colors[Math.abs(h) % colors.length];
+
+        const { data: newGroup, error: gErr } = await supabase
+          .from('groups')
+          .insert({ line_group_id: lineGroupId, name: groupName, color, initials })
+          .select('id')
+          .single();
+
+        if (gErr) { console.error('[Webhook] insert group:', gErr); continue; }
+        console.log(`[Webhook] Auto-created group: ${groupName} (${lineGroupId})`);
+        groupId = newGroup.id;
+      } else {
+        groupId = group.id;
       }
 
       // 2. ดึงชื่อผู้ส่งจาก Line
@@ -80,7 +102,7 @@ router.post('/line', async (req, res) => {
       const { data: existingIssue } = await supabase
         .from('issues')
         .select('id')
-        .eq('group_id', group.id)
+        .eq('group_id', groupId)
         .eq('line_user_id', lineUserId)
         .neq('status', 'resolved')
         .order('created_at', { ascending: false })
@@ -108,7 +130,7 @@ router.post('/line', async (req, res) => {
         const { data: newIssue, error } = await supabase
           .from('issues')
           .insert({
-            group_id:          group.id,
+            group_id:          groupId,
             reporter_name:     reporterName,
             reporter_color:    reporterColor,
             reporter_initials: reporterInitials,
