@@ -74,7 +74,7 @@ router.post('/members', async (req, res) => {
 router.patch('/members/:id', async (req, res) => {
   const { id } = req.params;
   const patch = {};
-  ['name','role','color','initials'].forEach(k => {
+  ['name','role','color','initials','line_user_id'].forEach(k => {
     if (req.body[k] !== undefined) patch[k] = req.body[k];
   });
   const { data, error } = await supabase

@@ -64,6 +64,17 @@ router.post('/line', async (req, res) => {
 
     console.log(`[Webhook] ข้อความจาก group=${lineGroupId} user=${lineUserId}`);
 
+    // คำสั่งพิเศษ: myid → บอท reply Line User ID ให้ผู้ส่ง
+    if (rawText.trim().toLowerCase() === 'myid') {
+      try {
+        await lineClient.pushMessage({
+          to: lineGroupId,
+          messages: [{ type: 'text', text: `🆔 Line User ID ของคุณ:\n${lineUserId}\n\n(แจ้ง admin เพื่อลงทะเบียนเป็นทีมงาน)` }],
+        });
+      } catch { /* ignore */ }
+      continue;
+    }
+
     try {
       // 1. หา group จาก DB
       const { data: group } = await supabase
@@ -100,7 +111,40 @@ router.post('/line', async (req, res) => {
         groupId = group.id;
       }
 
-      // 2. ดึงชื่อผู้ส่งจาก Line
+      // 2. ตรวจสอบว่าผู้ส่งเป็นทีมงานไหม
+      const { data: memberMatch } = await supabase
+        .from('members')
+        .select('id, name, color, initials')
+        .eq('line_user_id', lineUserId)
+        .maybeSingle();
+
+      // ถ้าเป็นทีมงาน → บันทึกเป็น agent message ใน issue ล่าสุดของกลุ่ม แล้วข้ามไป
+      if (memberMatch) {
+        const { data: latestIssue } = await supabase
+          .from('issues')
+          .select('id')
+          .eq('group_id', groupId)
+          .neq('status', 'resolved')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestIssue) {
+          await supabase.from('messages').insert({
+            issue_id:   latestIssue.id,
+            from_type:  'agent',
+            who:        memberMatch.name,
+            text,
+            attachment,
+            line_message_id: event.message.id,
+            created_at: timestamp,
+          });
+          console.log(`[Webhook] ทีมงาน ${memberMatch.name} ตอบใน issue ${latestIssue.id}`);
+        }
+        continue;
+      }
+
+      // 3. ดึงชื่อผู้ส่งจาก Line (ลูกค้า)
       let reporterName = lineUserId;
       let reporterColor = pickColor(lineUserId);
       try {
