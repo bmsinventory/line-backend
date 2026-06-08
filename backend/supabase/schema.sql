@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS members (
   role            TEXT,
   color           TEXT        NOT NULL DEFAULT '#64748B',
   initials        TEXT        NOT NULL DEFAULT '??',
+  line_user_id    TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
