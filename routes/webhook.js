@@ -1,5 +1,6 @@
 const express = require('express');
 const { validateSignature } = require('@line/bot-sdk');
+const { randomUUID } = require('crypto');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
@@ -77,7 +78,7 @@ router.post('/line', async (req, res) => {
 
         const { data: newGroup, error: gErr } = await supabase
           .from('groups')
-          .insert({ line_group_id: lineGroupId, name: groupName, color, initials })
+          .insert({ id: randomUUID(), line_group_id: lineGroupId, name: groupName, color, initials })
           .select('id')
           .single();
 
