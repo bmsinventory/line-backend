@@ -24,9 +24,11 @@ function StatCard({ label, value, sub, accent, icon, trend }) {
 
 /* trend area+line chart */
 function TrendChart({ data }) {
+  if (!data || data.length === 0) return null;
   const W = 640, H = 200, pad = 28;
-  const max = Math.max(...data.flatMap((d) => [d.created, d.resolved])) * 1.15;
-  const x = (i) => pad + (i * (W - pad * 2)) / (data.length - 1);
+  const rawMax = Math.max(...data.flatMap((d) => [d.created, d.resolved]));
+  const max = (rawMax || 1) * 1.15;
+  const x = (i) => data.length < 2 ? W / 2 : pad + (i * (W - pad * 2)) / (data.length - 1);
   const y = (v) => H - pad - (v / max) * (H - pad * 2);
   const path = (key) => data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(d[key])}`).join(' ');
   const area = `${path('created')} L ${x(data.length - 1)} ${H - pad} L ${x(0)} ${H - pad} Z`;
@@ -54,7 +56,8 @@ function TrendChart({ data }) {
 
 /* horizontal bar chart for groups */
 function GroupBars({ rows }) {
-  const max = Math.max(...rows.map((r) => r.count));
+  if (!rows || rows.length === 0) return <p style={{ color: '#94A3B8', fontSize: 13 }}>ไม่มีข้อมูล</p>;
+  const max = Math.max(...rows.map((r) => r.count)) || 1;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
       {rows.map((r) => (
@@ -124,10 +127,23 @@ function Panel({ title, sub, children, action }) {
 }
 
 function Dashboard({ issues, isMobile }) {
+  const now = Date.now();
   const open = issues.filter((i) => i.status !== 'resolved');
   const urgent = open.filter((i) => i.priority === 'urgent');
   const unassigned = open.filter((i) => !i.assigneeId);
-  const resolvedToday = issues.filter((i) => i.status === 'resolved' && i.closedAt && (D.NOW - new Date(i.closedAt)) < 86400000);
+  const resolvedToday = issues.filter((i) => i.status === 'resolved' && i.closedAt && (now - new Date(i.closedAt)) < 86400000);
+
+  // คำนวณ trend 7 วันย้อนหลังจาก issues จริง
+  const trendData = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(now - (6 - i) * 86400000);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const dayEnd   = dayStart + 86400000;
+    return {
+      day: d.toLocaleDateString('th-TH', { weekday: 'short' }),
+      created:  issues.filter((x) => { const t = new Date(x.createdAt).getTime(); return t >= dayStart && t < dayEnd; }).length,
+      resolved: issues.filter((x) => { const t = x.closedAt ? new Date(x.closedAt).getTime() : 0; return t >= dayStart && t < dayEnd; }).length,
+    };
+  });
 
   const statusCounts = {};
   Object.keys(D.STATUSES).forEach((k) => statusCounts[k] = issues.filter((i) => i.status === k).length);
@@ -161,7 +177,7 @@ function Dashboard({ issues, isMobile }) {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#64748B' }}><span style={{ width: 12, height: 3, borderRadius: 9, background: '#06C755' }}></span>เข้าใหม่</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#64748B' }}><span style={{ width: 12, height: 3, borderRadius: 9, background: '#3B82F6' }}></span>ปิดได้</span>
             </div>}>
-            <TrendChart data={D.TREND_7D} />
+            <TrendChart data={trendData} />
           </Panel>
           <Panel title="สถานะปัญหา" sub="ภาพรวมทุกกลุ่ม">
             <StatusDonut counts={statusCounts} total={issues.length} />
