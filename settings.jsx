@@ -162,8 +162,26 @@ function TeamSection({ toast }) {
   const [nm, setNm] = useState('');
   const [role, setRole] = useState('ซัพพอร์ต');
   const [color, setColor] = useState('#3B82F6');
+  // expand panels — only one open at a time
+  const [expandedId, setExpandedId] = useState(null);   // Line ID panel
+  const [editId, setEditId] = useState(null);            // Edit info panel
+  const [lineIdDraft, setLineIdDraft] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('');
 
   const syncGlobal = (arr) => { D.MEMBERS = arr; };
+
+  const openLineId = (m) => {
+    setEditId(null);
+    setExpandedId(m.id === expandedId ? null : m.id);
+    setLineIdDraft(m.line_user_id || '');
+  };
+  const openEdit = (m) => {
+    setExpandedId(null);
+    setEditId(m.id === editId ? null : m.id);
+    setEditName(m.name);
+    setEditColor(m.color);
+  };
 
   const add = async () => {
     if (!nm.trim() || saving) return;
@@ -213,6 +231,36 @@ function TeamSection({ toast }) {
     }
   };
 
+  const saveLineId = async (id) => {
+    try {
+      const res = await fetch(`/api/members/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_user_id: lineIdDraft.trim() || null }),
+      });
+      const updated = await res.json();
+      setMembers((arr) => arr.map((m) => m.id === id ? { ...m, line_user_id: updated.line_user_id } : m));
+      setExpandedId(null);
+      toast('บันทึก Line User ID แล้ว');
+    } catch { toast('เกิดข้อผิดพลาด'); }
+  };
+
+  const saveMember = async (id) => {
+    if (!editName.trim()) return;
+    const initials = editName.trim().slice(0, 2);
+    try {
+      const res = await fetch(`/api/members/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editName.trim(), color: editColor, initials }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      setMembers((arr) => { const next = arr.map((m) => m.id === id ? { ...m, name: editName.trim(), color: editColor, initials } : m); syncGlobal(next); return next; });
+      setEditId(null);
+      toast('แก้ไขข้อมูลสมาชิกแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SecHead title="จัดการทีมงาน" desc={`สมาชิกทั้งหมด ${members.length} คนที่รับมอบหมายงานได้`}
@@ -247,25 +295,82 @@ function TeamSection({ toast }) {
 
       <Card>
         {members.map((m, i) => (
-          <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
-            <Avatar initials={m.initials} color={m.color} size={42} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}{m.id === 'm0' && <span style={{ fontSize: 11, fontWeight: 700, color: '#06C755', background: '#06C75514', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>คุณ</span>}</div>
-              <div style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 500, marginTop: 1 }}>มอบหมายงานได้</div>
+          <div key={m.id} style={{ borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
+            {/* row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px' }}>
+              <Avatar initials={m.initials} color={m.color} size={42} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {m.name}{m.id === 'm0' && <span style={{ fontSize: 11, fontWeight: 700, color: '#06C755', background: '#06C75514', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>คุณ</span>}
+                </div>
+                <div style={{ fontSize: 12, color: m.line_user_id ? '#06C755' : '#CBD5E1', fontWeight: 500, marginTop: 2 }}>
+                  {m.line_user_id ? `Line: ${m.line_user_id.slice(0, 12)}…` : 'ยังไม่ได้ผูก Line ID'}
+                </div>
+              </div>
+              <Dropdown align="right" width={170} trigger={(open) => (
+                <button style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 9, border: '1.5px solid ' + (open ? '#06C755' : '#E2E8F0'), background: '#F8FAFC', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+                  {m.role}<Icon name="chevronDown" size={13} style={{ color: '#94A3B8' }} />
+                </button>
+              )}>
+                {(close) => ROLES.map((r) => <MenuItem key={r} active={m.role === r} onClick={() => { setRoleOf(m.id, r); close(); }}>{r}</MenuItem>)}
+              </Dropdown>
+              {/* ปุ่มแก้ไขชื่อ/สี */}
+              <button onClick={() => openEdit(m)} title="แก้ไขข้อมูล" style={{ border: 'none', background: editId === m.id ? '#FFF7ED' : 'transparent', cursor: 'pointer', color: editId === m.id ? '#F59E0B' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={(e) => { if (editId !== m.id) { e.currentTarget.style.color = '#F59E0B'; e.currentTarget.style.background = '#FFF7ED'; } }}
+                onMouseLeave={(e) => { if (editId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
+                <Icon name="pencil" size={17} />
+              </button>
+              {/* ปุ่มผูก Line ID */}
+              <button onClick={() => openLineId(m)} title="ผูก Line ID" style={{ border: 'none', background: expandedId === m.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', color: expandedId === m.id ? '#3B82F6' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={(e) => { if (expandedId !== m.id) { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; } }}
+                onMouseLeave={(e) => { if (expandedId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
+                <Icon name="link" size={17} />
+              </button>
+              {m.id !== 'm0' && (
+                <button onClick={() => remove(m.id)} title="นำออก" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
+                  <Icon name="trash" size={17} />
+                </button>
+              )}
             </div>
-            <Dropdown align="right" width={170} trigger={(open) => (
-              <button style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 9, border: '1.5px solid ' + (open ? '#06C755' : '#E2E8F0'), background: '#F8FAFC', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#475569' }}>
-                {m.role}<Icon name="chevronDown" size={13} style={{ color: '#94A3B8' }} />
-              </button>
-            )}>
-              {(close) => ROLES.map((r) => <MenuItem key={r} active={m.role === r} onClick={() => { setRoleOf(m.id, r); close(); }}>{r}</MenuItem>)}
-            </Dropdown>
-            {m.id !== 'm0' && (
-              <button onClick={() => remove(m.id)} title="นำออก" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
-                <Icon name="trash" size={17} />
-              </button>
+
+            {/* Edit info panel */}
+            {editId === m.id && (
+              <div style={{ padding: '12px 18px 16px', background: '#FFFBEB', borderTop: '1px solid #FEF3C7', animation: 'pop .12s ease-out' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>ชื่อสมาชิก</div>
+                    <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveMember(m.id); if (e.key === 'Escape') setEditId(null); }}
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 180, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>สี</div>
+                    <ColorPicker value={editColor} onChange={setEditColor} />
+                  </div>
+                  <div style={{ flex: 1 }}></div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => saveMember(m.id)} style={{ height: 40, padding: '0 16px', border: 'none', background: '#F59E0B', color: '#fff', cursor: 'pointer', borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>บันทึก</button>
+                    <button onClick={() => setEditId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Line ID panel */}
+            {expandedId === m.id && (
+              <div style={{ padding: '0 18px 16px', display: 'flex', gap: 10, alignItems: 'flex-end', background: '#F8FAFC', borderTop: '1px solid #F1F5F9', animation: 'pop .12s ease-out' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>Line User ID <span style={{ color: '#94A3B8', fontWeight: 400 }}>(ให้ทีมงานพิมพ์ "myid" ในกลุ่ม Line เพื่อรับ ID)</span></div>
+                  <input value={lineIdDraft} onChange={(e) => setLineIdDraft(e.target.value)}
+                    placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    style={{ width: '100%', height: 40, padding: '0 13px', borderRadius: 10, fontFamily: 'monospace', fontSize: 13, color: '#1E293B', border: '1.5px solid #06C755', outline: 'none', background: '#fff', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <FillBtn icon="check" onClick={() => saveLineId(m.id)}>บันทึก</FillBtn>
+                <button onClick={() => setExpandedId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+              </div>
             )}
           </div>
         ))}
