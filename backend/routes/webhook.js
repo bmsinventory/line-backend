@@ -57,10 +57,9 @@ router.post('/line', async (req, res) => {
     const text       = rawText || `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
 
-    // คำสำคัญที่ใช้เปิด issue ใหม่ (case-insensitive, ตัดช่องว่างหน้า-หลัง)
-    const TRIGGERS = ['แจ้งปัญหา', 'แจ้งเรื่อง', 'ขอความช่วยเหลือ', 'report'];
+    // คำสำคัญสำหรับกลุ่มที่ยังไม่แทร็กทีมงาน
+    const TRIGGERS = ['แจ้งปัญหา', 'inv'];
     const triggerMatch = TRIGGERS.find((t) => rawText.toLowerCase().startsWith(t.toLowerCase()));
-    const isNewRequest = !!triggerMatch;
 
     console.log(`[Webhook] ข้อความจาก group=${lineGroupId} user=${lineUserId}`);
 
@@ -181,10 +180,27 @@ router.post('/line', async (req, res) => {
           .eq('id', existingIssue.id);
         console.log(`[Webhook] เพิ่มข้อความใน issue ${existingIssue.id}`);
 
-      } else if (isNewRequest) {
-        // ไม่มี issue เปิด + มี keyword → สร้าง issue ใหม่
-        const titleRaw = rawText.slice(triggerMatch.length).replace(/^[:\s]+/, '').trim();
-        const title    = (titleRaw || rawText).slice(0, 80);
+      } else {
+        // ไม่มี issue เปิด — ตรวจว่ากลุ่มนี้แทร็กทีมงานไว้ไหม
+        const { data: trackedMembers } = await supabase
+          .from('members')
+          .select('id')
+          .not('line_user_id', 'is', null)
+          .limit(1);
+        const hasTrackedTeam = (trackedMembers || []).length > 0;
+
+        // สร้าง issue ถ้า: (1) กลุ่มแทร็กทีม → auto ทุกข้อความ หรือ (2) มี keyword
+        if (!hasTrackedTeam && !triggerMatch) {
+          console.log(`[Webhook] ข้อความทั่วไป ละเว้น (ยังไม่แทร็กทีม)`);
+        } else {
+        // สร้าง issue ใหม่
+        let title;
+        if (triggerMatch) {
+          const titleRaw = rawText.slice(triggerMatch.length).replace(/^[:\s]+/, '').trim();
+          title = (titleRaw || rawText).slice(0, 80);
+        } else {
+          title = rawText.slice(0, 80) || text.slice(0, 80);
+        }
 
         const { data: newIssue, error } = await supabase
           .from('issues')
@@ -224,11 +240,8 @@ router.post('/line', async (req, res) => {
             messages: [{ type: 'text', text: `✅ รับเรื่องแล้วครับ คุณ${reporterName}\n📋 "${title}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้` }],
           });
         } catch { /* ถ้าส่งไม่ได้ ไม่ต้อง block */ }
-
-      } else {
-        // ข้อความทั่วไป ไม่มี keyword → ระบบเงียบ ไม่ตอบกลับ
-        console.log(`[Webhook] ข้อความทั่วไป ละเว้น`);
-      }
+        } // end if shouldCreate
+      } // end else (no existing issue)
     } catch (err) {
       console.error('[Webhook] Error processing event:', err);
     }
