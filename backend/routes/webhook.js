@@ -70,7 +70,7 @@ router.post('/line', async (req, res) => {
     const msgType     = event.message.type; // 'text' | 'image' | 'video' | ...
 
     const rawText    = msgType === 'text' ? event.message.text : '';
-    const text       = rawText || `[${msgType}]`;
+    const text       = (rawText ? rawText.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim() : '') || `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
 
     // คำสำคัญสำหรับกลุ่มที่ยังไม่แทร็กทีมงาน
