@@ -8,6 +8,7 @@ const { sign, verify, parseCookies, COOKIE_NAME, COOKIE_MAXAGE, verifyPassword, 
 const LINE_CHANNEL_ID     = process.env.LINE_LOGIN_CHANNEL_ID;
 const LINE_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET;
 const LINE_REDIRECT_URI   = process.env.LINE_LOGIN_REDIRECT_URI;
+const OAUTH_SECRET        = process.env.JWT_SECRET || 'line-tracker-secret-change-in-env';
 // LINE user IDs เพิ่มเติม (env var) ที่ได้รับสิทธิ์แอดมิน (นอกเหนือจาก members table)
 const EXTRA_ADMIN_IDS = (process.env.ADMIN_LINE_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 
@@ -28,11 +29,32 @@ const LINE_ERROR_MSGS = {
 function setCookieHeader(res, token) {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production',
+    secure:   true,  // Render.com เป็น HTTPS เสมอ; trust proxy ช่วย proxy-aware
     sameSite: 'lax',
     maxAge:   COOKIE_MAXAGE,
     path:     '/',
   });
+}
+
+// สร้าง HMAC-signed state (ไม่ต้องเก็บใน cookie → ทำงานได้ทุก browser context รวม LINE WebView)
+function makeOAuthState() {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const ts    = Date.now().toString(36);
+  const body  = `${nonce}.${ts}`;
+  const mac   = crypto.createHmac('sha256', OAUTH_SECRET).update(body).digest('hex').slice(0, 16);
+  return `${body}.${mac}`;
+}
+
+function verifyOAuthState(state) {
+  if (!state) return false;
+  const parts = state.split('.');
+  if (parts.length !== 3) return false;
+  const [nonce, tsStr, mac] = parts;
+  const body        = `${nonce}.${tsStr}`;
+  const expectedMac = crypto.createHmac('sha256', OAUTH_SECRET).update(body).digest('hex').slice(0, 16);
+  if (mac !== expectedMac) return false;
+  const age = Date.now() - parseInt(tsStr, 36);
+  return age >= 0 && age <= 10 * 60 * 1000; // valid 10 นาที
 }
 
 function makeToken(memberId, name, role) {
@@ -135,8 +157,7 @@ router.get('/line', (req, res) => {
   if (!LINE_CHANNEL_ID || !LINE_REDIRECT_URI) {
     return res.redirect('/?auth_error=line_not_configured');
   }
-  const state = crypto.randomBytes(16).toString('hex');
-  res.cookie('lt_oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000, path: '/', sameSite: 'lax' });
+  const state = makeOAuthState(); // HMAC-signed — ไม่ต้องใช้ cookie
   const params = new URLSearchParams({
     response_type: 'code',
     client_id:     LINE_CHANNEL_ID,
@@ -153,12 +174,10 @@ router.get('/line/callback', async (req, res) => {
   if (error) return res.redirect('/?auth_error=' + (error === 'access_denied' ? 'access_denied' : 'server_error'));
   if (!code) return res.redirect('/?auth_error=server_error');
 
-  // ตรวจ CSRF state
-  const cookies = parseCookies(req);
-  if (!state || state !== cookies['lt_oauth_state']) {
+  // ตรวจ CSRF state ด้วย HMAC (ไม่ต้องพึ่ง cookie → ทำงานได้ใน LINE WebView / mobile)
+  if (!verifyOAuthState(state)) {
     return res.redirect('/?auth_error=invalid_state');
   }
-  res.clearCookie('lt_oauth_state', { path: '/' });
 
   try {
     // แลก code เป็น access_token

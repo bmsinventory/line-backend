@@ -5,6 +5,7 @@ const path       = require('path');
 const requireAuth = require('./middleware/auth');
 
 const app = express();
+app.set('trust proxy', 1); // Render.com / reverse proxy
 
 // Line webhook ต้องการ raw body สำหรับตรวจ HMAC signature
 app.use('/webhook/line', express.raw({ type: '*/*' }));
