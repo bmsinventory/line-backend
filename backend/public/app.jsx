@@ -144,22 +144,25 @@ const FILTERS = [
   { id: 'open', label: 'ยังไม่ปิด', test: (i) => i.status !== 'resolved' },
 ];
 
-function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search }) {
+function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search, flash }) {
   const [filter, setFilter] = useState('all');
   const [groupId, setGroupId] = useState('all');
+  const [showResolved, setShowResolved] = useState(false);
 
-  const list = useMemo(() => {
+  const { list, resolvedCount } = useMemo(() => {
     let l = issues.filter(FILTERS.find((f) => f.id === filter).test);
     if (groupId !== 'all') l = l.filter((i) => i.groupId === groupId);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       l = l.filter((i) => i.title.toLowerCase().includes(q) || i.code.toLowerCase().includes(q) || i.reporter.name.toLowerCase().includes(q));
     }
-    return l.slice().sort((a, b) => {
+    const sorted = l.slice().sort((a, b) => {
       if ((a.status === 'resolved') !== (b.status === 'resolved')) return a.status === 'resolved' ? 1 : -1;
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
-  }, [issues, filter, groupId, search]);
+    const rCount = sorted.filter((i) => i.status === 'resolved').length;
+    return { list: showResolved ? sorted : sorted.filter((i) => i.status !== 'resolved'), resolvedCount: rCount };
+  }, [issues, filter, groupId, search, showResolved]);
 
   const selected = byId(issues, selId);
   const showList = !isMobile || !selected;
@@ -215,14 +218,26 @@ function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search 
             {list.map((i) => (
               <IssueCard key={i.id} issue={i} active={selId === i.id} onClick={() => setSel(i.id)} />
             ))}
-            {list.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: '#CBD5E1', fontSize: 13, fontWeight: 600 }}>ไม่พบเรื่องที่ตรงเงื่อนไข</div>}
+            {list.length === 0 && !showResolved && resolvedCount === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: '#CBD5E1', fontSize: 13, fontWeight: 600 }}>ไม่พบเรื่องที่ตรงเงื่อนไข</div>}
+            {list.length === 0 && !showResolved && resolvedCount > 0 && <div style={{ textAlign: 'center', padding: '28px 0 8px', color: '#CBD5E1', fontSize: 13, fontWeight: 600 }}>ไม่มีเรื่องที่ยังค้างอยู่</div>}
+            {resolvedCount > 0 && (
+              <button onClick={() => setShowResolved((v) => !v)} style={{
+                border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12.5, fontWeight: 600, color: '#94A3B8', padding: '10px 8px',
+                display: 'flex', alignItems: 'center', gap: 7, width: '100%', justifyContent: 'center',
+                borderTop: list.length > 0 ? '1px solid #E2E8F022' : 'none', marginTop: list.length > 0 ? 6 : 0,
+              }}>
+                <Icon name={showResolved ? 'eyeOff' : 'eye'} size={14} />
+                {showResolved ? `ซ่อนเรื่องที่เสร็จแล้ว` : `แสดง ${resolvedCount} เรื่องที่เสร็จแล้ว`}
+              </button>
+            )}
           </div>
         </div>
       )}
       {showDetail && (
         <div style={{ flex: 1, minWidth: 0 }}>
           {selected
-            ? <IssueDetail issue={selected} onUpdate={onUpdate} onReply={onReply} onBack={() => setSel(null)} isMobile={isMobile} />
+            ? <IssueDetail issue={selected} onUpdate={onUpdate} onReply={onReply} onBack={() => setSel(null)} isMobile={isMobile} flash={flash} />
             : <EmptyDetail />}
         </div>
       )}
@@ -460,6 +475,7 @@ function App() {
       await fetchIssues();
       if (patch.status !== undefined) flash('อัปเดตสถานะแล้ว');
       else if ('assigneeId' in patch)  flash('มอบหมายงานแล้ว');
+      else if ('category'   in patch)  flash('เปลี่ยนหมวดหมู่แล้ว');
     } catch (err) { console.error('[App] update:', err); }
   };
 
@@ -532,11 +548,11 @@ function App() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, paddingBottom: isMobile ? 64 : 0 }}>
         <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} currentUser={currentUser} />
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} />}
+          {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} flash={flash} />}
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}
           {view === 'dashboard' && <Dashboard issues={issues} isMobile={isMobile} />}
           {view === 'groups'    && <GroupsView issues={issues} isMobile={isMobile} />}
-          {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} />}
+          {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} currentUser={currentUser} />}
         </div>
       </div>
       {isMobile && <NavRail view={view} setView={setView} isMobile={true} openCount={openCount} onLogout={doLogout} currentUser={currentUser} />}

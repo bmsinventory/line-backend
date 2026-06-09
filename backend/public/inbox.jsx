@@ -119,6 +119,38 @@ function Bubble({ m }) {
   );
 }
 
+/* ---------- AI classify button ---------- */
+function AiClassifyBtn({ issueId, onUpdate, flash }) {
+  const [loading, setLoading] = useState(false);
+
+  const classify = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/issues/${issueId}/classify`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      onUpdate(issueId, { category: data.category });
+    } catch (err) {
+      if (flash) flash('AI error: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button onClick={classify} disabled={loading} title="ให้ AI ช่วยจัดหมวดหมู่" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', borderRadius: 10,
+      border: '1.5px solid ' + (loading ? '#E2E8F0' : '#DDD6FE'),
+      background: loading ? '#F8FAFC' : '#F5F3FF', cursor: loading ? 'default' : 'pointer',
+      fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+      color: loading ? '#94A3B8' : '#7C3AED', whiteSpace: 'nowrap',
+    }}>
+      <Icon name="sparkles" size={14} strokeWidth={2} />
+      {loading ? 'กำลังวิเคราะห์…' : 'AI จัดหมวดหมู่'}
+    </button>
+  );
+}
+
 /* ---------- detail action bar control ---------- */
 function ControlChip({ icon, label, value, color, onClick, open }) {
   return (
@@ -135,7 +167,7 @@ function ControlChip({ icon, label, value, color, onClick, open }) {
 }
 
 /* ---------- detail panel ---------- */
-function IssueDetail({ issue, onUpdate, onReply, onBack, isMobile }) {
+function IssueDetail({ issue, onUpdate, onReply, onBack, isMobile, flash }) {
   const [reply, setReply] = useState('');
   const [internal, setInternal] = useState(false);
   const scrollRef = useRef(null);
@@ -224,7 +256,24 @@ function IssueDetail({ issue, onUpdate, onReply, onBack, isMobile }) {
             ))}
           </Dropdown>
 
-          <CategoryChip cat={issue.category} />
+          <Dropdown align="left" width={220} trigger={(open) => {
+              const cat = D.CATEGORIES[issue.category] || { label: issue.category, color: '#94A3B8' };
+              return (
+                <ControlChip label="หมวดหมู่" open={open} color={cat.color}
+                  value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 99, background: cat.color, flexShrink: 0 }}></span>
+                    {cat.label}
+                  </span>} />
+              );
+            }}>
+              {(close) => Object.entries(D.CATEGORIES).map(([k, c]) => (
+                <MenuItem key={k} active={issue.category === k} onClick={() => { onUpdate(issue.id, { category: k }); close(); }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: c.color, flexShrink: 0 }}></span>
+                  {c.label}
+                </MenuItem>
+              ))}
+            </Dropdown>
+          <AiClassifyBtn issueId={issue.id} onUpdate={onUpdate} flash={flash} />
         </div>
       </div>
 
