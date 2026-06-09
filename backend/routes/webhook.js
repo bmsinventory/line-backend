@@ -273,7 +273,7 @@ router.post('/line', async (req, res) => {
         title = title.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
 
         const newIssueId = randomUUID();
-        const issuePayload = JSON.stringify({
+        const { error: issueErr } = await supabase.from('issues').insert({
           id:                newIssueId,
           group_id:          groupId,
           reporter_name:     reporterName,
@@ -287,40 +287,17 @@ router.post('/line', async (req, res) => {
           unread:            true,
           created_at:        timestamp,
         });
-        const issueRes = await fetch(`${process.env.SUPABASE_URL}/rest/v1/issues`, {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'apikey':        process.env.SUPABASE_SERVICE_KEY,
-            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
-            'Prefer':        'return=minimal',
-          },
-          body: issuePayload,
-        });
-        if (!issueRes.ok) {
-          const errText = await issueRes.text();
-          console.error('[Webhook] insert issue failed:', issueRes.status, errText);
-          continue;
-        }
+        if (issueErr) { console.error('[Webhook] insert issue:', issueErr); continue; }
 
-        await fetch(`${process.env.SUPABASE_URL}/rest/v1/messages`, {
-          method: 'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'apikey':        process.env.SUPABASE_SERVICE_KEY,
-            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
-            'Prefer':        'return=minimal',
-          },
-          body: JSON.stringify({
-            issue_id:        newIssueId,
-            from_type:       'customer',
-            who:             reporterName,
-            text,
-            attachment,
-            line_message_id: event.message.id,
-            quote_token:     event.message.quoteToken || null,
-            created_at:      timestamp,
-          }),
+        await supabase.from('messages').insert({
+          issue_id:        newIssueId,
+          from_type:       'customer',
+          who:             reporterName,
+          text,
+          attachment,
+          line_message_id: event.message.id,
+          quote_token:     event.message.quoteToken || null,
+          created_at:      timestamp,
         });
         sse.broadcast();
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
