@@ -60,6 +60,51 @@ router.post('/line', async (req, res) => {
   console.log(`[Webhook] รับ ${events.length} event(s)`);
 
   for (const event of events) {
+    // ---- JOIN: bot ถูกเชิญเข้ากลุ่ม → สร้าง group อัตโนมัติ ----
+    if (event.type === 'join' && event.source.type === 'group') {
+      const lineGroupId = event.source.groupId;
+      try {
+        const { data: existingGroup } = await supabase
+          .from('groups').select('id').eq('line_group_id', lineGroupId).maybeSingle();
+
+        if (!existingGroup) {
+          let groupName = lineGroupId;
+          try {
+            const summary = await lineClient.getGroupSummary(lineGroupId);
+            groupName = summary.groupName || groupName;
+          } catch { /* ใช้ groupId แทน */ }
+
+          const initials = groupName.slice(0, 2);
+          const colors = ['#06C755','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#0EA5E9'];
+          let h = 0;
+          for (const c of lineGroupId) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+          const color = colors[Math.abs(h) % colors.length];
+
+          const { error: gErr } = await supabase.from('groups').insert({
+            id: randomUUID(), line_group_id: lineGroupId, name: groupName, color, initials,
+          });
+
+          if (!gErr) {
+            console.log(`[Webhook] Bot joined → auto-created group: ${groupName} (${lineGroupId})`);
+            sse.broadcast();
+            try {
+              await lineClient.pushMessage({
+                to: lineGroupId,
+                messages: [{ type: 'text', text: `👋 สวัสดีครับ! บอทพร้อมรับแจ้งปัญหาแล้ว\n\n📌 วิธีแจ้งปัญหา:\nพิมพ์ INV ตามด้วยปัญหาของคุณ\nตัวอย่าง: INV อินเตอร์เน็ตไม่เชื่อมต่อ` }],
+              });
+            } catch { /* ignore */ }
+          } else {
+            console.error('[Webhook] insert group on join:', gErr);
+          }
+        } else {
+          console.log(`[Webhook] Bot joined group ที่มีอยู่แล้ว: ${lineGroupId}`);
+        }
+      } catch (err) {
+        console.error('[Webhook] Error handling join event:', err);
+      }
+      continue;
+    }
+
     // รองรับแค่ข้อความ text จากกลุ่ม
     if (event.type !== 'message') { console.log(`[Webhook] ข้าม event type: ${event.type}`); continue; }
     if (event.source.type !== 'group') { console.log(`[Webhook] ข้าม source type: ${event.source.type}`); continue; }
@@ -73,8 +118,8 @@ router.post('/line', async (req, res) => {
     const text       = (rawText ? rawText.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim() : '') || `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
 
-    // คำสำคัญสำหรับกลุ่มที่ยังไม่แทร็กทีมงาน
-    const TRIGGERS = ['แจ้งปัญหา', 'inv'];
+    // โหมด 2: คีย์เวิร์ด INV ตามด้วยปัญหา (ใช้ได้ทุกกลุ่ม ทุกโหมด)
+    const TRIGGERS = ['inv', 'แจ้งปัญหา'];
     const triggerMatch = TRIGGERS.find((t) => rawText.toLowerCase().startsWith(t.toLowerCase()));
 
     console.log(`[Webhook] ข้อความจาก group=${lineGroupId} user=${lineUserId}`);
@@ -200,51 +245,55 @@ router.post('/line', async (req, res) => {
         console.log(`[Webhook] เพิ่มข้อความใน issue ${existingIssue.id}`);
 
       } else {
-        // ไม่มี issue เปิด — ตรวจว่ากลุ่มนี้แทร็กทีมงานไว้ไหม
+        // ไม่มี issue เปิด — ตรวจสอบโหมดการสร้าง issue
+        //
+        // โหมด 1 (แทร็กทีมงาน): ระบบมีการลงทะเบียน LINE User ID ของทีมงานไว้
+        //   → auto-create issue จากทุกข้อความของลูกค้า
+        // โหมด 2 (INV keyword): ผู้ใช้พิมพ์ "INV ..." หรือ "แจ้งปัญหา ..."
+        //   → สร้าง issue โดยใช้ข้อความหลัง keyword เป็นหัวข้อ
         const { data: trackedMembers } = await supabase
-          .from('members')
-          .select('id')
-          .not('line_user_id', 'is', null)
-          .limit(1);
+          .from('members').select('id').not('line_user_id', 'is', null).limit(1);
         const hasTrackedTeam = (trackedMembers || []).length > 0;
 
-        // สร้าง issue ถ้า: (1) กลุ่มแทร็กทีม → auto ทุกข้อความ หรือ (2) มี keyword
-        if (!hasTrackedTeam && !triggerMatch) {
-          console.log(`[Webhook] ข้อความทั่วไป ละเว้น (ยังไม่แทร็กทีม)`);
+        const shouldCreate = hasTrackedTeam || !!triggerMatch;
+        if (!shouldCreate) {
+          console.log(`[Webhook] ข้อความทั่วไป ละเว้น — ใช้ INV ตามด้วยปัญหาเพื่อแจ้ง`);
         } else {
         // สร้าง issue ใหม่
         let title;
         if (triggerMatch) {
+          // โหมด 2: title = ข้อความหลัง INV
           const titleRaw = rawText.slice(triggerMatch.length).replace(/^[:\s]+/, '').trim();
           title = (titleRaw || rawText).slice(0, 80);
         } else {
+          // โหมด 1: title = ข้อความเต็ม (auto-track)
           title = rawText.slice(0, 80) || text.slice(0, 80);
         }
         // ลบ @mention ออกจากหัวข้อ
         title = title.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
 
-        const { data: newIssue, error } = await supabase
-          .from('issues')
-          .insert({
-            group_id:          groupId,
-            reporter_name:     reporterName,
-            reporter_color:    reporterColor,
-            reporter_initials: reporterInitials,
-            line_user_id:      lineUserId,
-            line_group_id:     lineGroupId,
-            title,
-            status:   'new',
-            priority: 'normal',
-            unread:   true,
-            created_at: timestamp,
-          })
-          .select('id')
-          .single();
+        const newIssueId = randomUUID();
+        const { error } = await supabase.from('issues').insert({
+          id:                newIssueId,
+          group_id:          groupId,
+          reporter_name:     reporterName,
+          reporter_color:    reporterColor,
+          reporter_initials: reporterInitials,
+          line_user_id:      lineUserId,
+          line_group_id:     lineGroupId,
+          title,
+          category:          'howto',
+          tags:              [],
+          status:            'new',
+          priority:          'normal',
+          unread:            true,
+          created_at:        timestamp,
+        });
 
         if (error) { console.error('[Webhook] insert issue:', error); continue; }
 
         await supabase.from('messages').insert({
-          issue_id:   newIssue.id,
+          issue_id:   newIssueId,
           from_type:  'customer',
           who:        reporterName,
           text,
