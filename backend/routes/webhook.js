@@ -63,11 +63,16 @@ function getAutoReplyText(name, title) {
 }
 
 // ฟังก์ชันสร้าง initials จากชื่อ
+// ใช้ Array.from() เพื่อ iterate Unicode code points (ป้องกัน emoji surrogate pair)
 function makeInitials(name) {
   if (!name) return '??';
   const words = name.trim().split(/\s+/);
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-  return name.slice(0, 2);
+  if (words.length >= 2) {
+    const c1 = Array.from(words[0])[0] || '';
+    const c2 = Array.from(words[1])[0] || '';
+    return (c1 + c2).toUpperCase();
+  }
+  return Array.from(name).slice(0, 2).join('');
 }
 
 // สีสุ่มสำหรับผู้ใช้ใหม่
@@ -115,7 +120,7 @@ router.post('/line', async (req, res) => {
             groupName = summary.groupName || groupName;
           } catch { /* ใช้ groupId แทน */ }
 
-          const initials = groupName.slice(0, 2);
+          const initials = Array.from(groupName).slice(0, 2).join('');
           const colors = ['#06C755','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#0EA5E9'];
           let h = 0;
           for (const c of lineGroupId) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
@@ -329,7 +334,6 @@ router.post('/line', async (req, res) => {
           unread:            true,
           created_at:        timestamp,
         };
-        console.log('[Webhook] inserting issue:', JSON.stringify(issueData));
         const { error: issueErr } = await dbInsert('issues', issueData);
         if (issueErr) { console.error('[Webhook] insert issue failed:', JSON.stringify(issueErr)); continue; }
 
