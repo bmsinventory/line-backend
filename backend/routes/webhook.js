@@ -1,12 +1,53 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { validateSignature } = require('@line/bot-sdk');
 const { randomUUID } = require('crypto');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
 const sse = require('../lib/sse');
+
+// INSERT โดยตรงผ่าน https.request() เพื่อหลีกเลี่ยงปัญหา fetch/Content-Length
+function dbInsert(table, data) {
+  const jsonStr = JSON.stringify(data);
+  const bodyBuf = Buffer.from(jsonStr, 'utf8');
+  const urlBase = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  const urlObj = new URL(`${urlBase}/rest/v1/${table}`);
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: urlObj.hostname,
+      port:     443,
+      path:     urlObj.pathname,
+      method:   'POST',
+      headers:  {
+        'Content-Type':   'application/json',
+        'Content-Length': bodyBuf.length,
+        'apikey':         process.env.SUPABASE_SERVICE_KEY,
+        'Authorization':  `Bearer ${process.env.SUPABASE_SERVICE_KEY}`,
+        'Prefer':         'return=minimal',
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve({ error: null });
+        } else {
+          let err;
+          try { err = JSON.parse(text); } catch { err = { message: text, status: res.statusCode }; }
+          resolve({ error: err });
+        }
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.write(bodyBuf);
+    req.end();
+  });
+}
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
 function getAutoReplyText(name, title) {
@@ -273,7 +314,7 @@ router.post('/line', async (req, res) => {
         title = title.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
 
         const newIssueId = randomUUID();
-        const { error: issueErr } = await supabase.from('issues').insert({
+        const issueData = {
           id:                newIssueId,
           group_id:          groupId,
           reporter_name:     reporterName,
@@ -282,12 +323,15 @@ router.post('/line', async (req, res) => {
           line_user_id:      lineUserId,
           line_group_id:     lineGroupId,
           title,
+          category:          'howto',
           status:            'new',
           priority:          'normal',
           unread:            true,
           created_at:        timestamp,
-        });
-        if (issueErr) { console.error('[Webhook] insert issue:', issueErr); continue; }
+        };
+        console.log('[Webhook] inserting issue:', JSON.stringify(issueData));
+        const { error: issueErr } = await dbInsert('issues', issueData);
+        if (issueErr) { console.error('[Webhook] insert issue failed:', JSON.stringify(issueErr)); continue; }
 
         await supabase.from('messages').insert({
           issue_id:        newIssueId,
