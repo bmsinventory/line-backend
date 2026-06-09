@@ -848,15 +848,30 @@ function ConnectionSection({ toast }) {
   }));
 
   const [arEnabled, setArEnabled] = useState(true);
+  const [arMode, setArMode] = useState('flex');
   const [arTemplate, setArTemplate] = useState('✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 "{{title}}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้');
+  const [arFlexJson, setArFlexJson] = useState('');
+  const [arFlexError, setArFlexError] = useState('');
   const [arSaving, setArSaving] = useState(false);
 
   useEffect(() => {
     fetch('/api/app-settings').then(r => r.json()).then(s => {
       setArEnabled(s.autoReplyEnabled !== false);
+      setArMode(s.autoReplyMode || 'flex');
       setArTemplate(s.autoReplyTemplate || '');
+      setArFlexJson(s.autoReplyFlexJson || '');
     }).catch(() => {});
   }, []);
+
+  const validateFlex = (json) => {
+    if (!json.trim()) { setArFlexError(''); return; }
+    try {
+      const p = JSON.parse(json);
+      if (p.type !== 'bubble' && p.type !== 'carousel') {
+        setArFlexError('ต้องเป็น bubble หรือ carousel — วาง contents เท่านั้น ไม่ต้องใส่ {"type":"flex",...} ด้านนอก');
+      } else { setArFlexError(''); }
+    } catch (e) { setArFlexError('JSON ไม่ถูกต้อง: ' + e.message.slice(0, 80)); }
+  };
 
   const saveAutoReply = async () => {
     setArSaving(true);
@@ -864,7 +879,7 @@ function ConnectionSection({ toast }) {
       await fetch('/api/app-settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoReplyEnabled: arEnabled, autoReplyTemplate: arTemplate }),
+        body: JSON.stringify({ autoReplyEnabled: arEnabled, autoReplyMode: arMode, autoReplyTemplate: arTemplate, autoReplyFlexJson: arFlexJson }),
       });
       toast('บันทึกข้อความตอบรับแล้ว');
     } catch { toast('เกิดข้อผิดพลาด'); }
@@ -908,34 +923,100 @@ function ConnectionSection({ toast }) {
           </div>
           <Toggle on={arEnabled} onChange={setArEnabled} />
         </div>
-        <div style={{ opacity: arEnabled ? 1 : 0.45, pointerEvents: arEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>
-              เทมเพลตข้อความ
-              <span style={{ marginLeft: 10, fontSize: 11.5, color: '#94A3B8', fontWeight: 500 }}>
-                ใช้ <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{name}}'}</code> = ชื่อผู้แจ้ง &nbsp;
-                <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{title}}'}</code> = หัวข้อปัญหา
-              </span>
+        <div style={{ opacity: arEnabled ? 1 : 0.45, pointerEvents: arEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* mode tabs */}
+          <div style={{ display: 'flex', gap: 4, background: '#F1F5F9', borderRadius: 10, padding: 4 }}>
+            {[{ v: 'flex', label: '✨ Flex Message' }, { v: 'text', label: '💬 ข้อความธรรมดา' }].map(({ v, label }) => (
+              <button key={v} onClick={() => setArMode(v)} style={{
+                flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 13, fontWeight: 700, transition: 'all .15s',
+                background: arMode === v ? '#fff' : 'transparent',
+                color: arMode === v ? '#06C755' : '#94A3B8',
+                boxShadow: arMode === v ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
+              }}>{label}</button>
+            ))}
+          </div>
+
+          {/* flex mode */}
+          {arMode === 'flex' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.6 }}>
+                ออกแบบใน{' '}
+                <a href="https://developers.line.biz/flex-simulator/" target="_blank" rel="noreferrer"
+                   style={{ color: '#06C755', fontWeight: 600 }}>LINE Flex Message Simulator</a>
+                {' '}แล้ววาง JSON ของ <b>bubble</b> หรือ <b>carousel</b> ด้านล่าง
+              </div>
+              <div style={{ fontSize: 12, color: '#94A3B8' }}>
+                ใช้{' '}
+                <code style={{ background: '#F1F5F9', padding: '1px 6px', borderRadius: 4, color: '#06C755', fontSize: 12 }}>{'{{name}}'}</code>
+                {' '}และ{' '}
+                <code style={{ background: '#F1F5F9', padding: '1px 6px', borderRadius: 4, color: '#06C755', fontSize: 12 }}>{'{{title}}'}</code>
+                {' '}ใน text fields ของ Flex เพื่อแทรกชื่อ/หัวข้อ
+              </div>
+              <textarea
+                value={arFlexJson}
+                onChange={(e) => { setArFlexJson(e.target.value); validateFlex(e.target.value); }}
+                rows={12}
+                placeholder={'{\n  "type": "bubble",\n  "body": {\n    "type": "box",\n    "layout": "vertical",\n    "contents": [\n      { "type": "text", "text": "รับเรื่องแล้วครับ {{name}}" }\n    ]\n  }\n}'}
+                style={{
+                  width: '100%', padding: '11px 13px', borderRadius: 12,
+                  border: `1.5px solid ${arFlexError ? '#EF4444' : arFlexJson && !arFlexError ? '#06C755' : '#E2E8F0'}`,
+                  fontFamily: 'monospace', fontSize: 12.5, color: '#1E293B', lineHeight: 1.6,
+                  resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#FAFAFA',
+                }}
+              />
+              {arFlexError && (
+                <div style={{ fontSize: 12, color: '#EF4444', background: '#FEF2F2', padding: '8px 12px', borderRadius: 8 }}>
+                  ⚠ {arFlexError}
+                </div>
+              )}
+              {arFlexJson && !arFlexError && (
+                <div style={{ fontSize: 12, color: '#06C755', background: '#F0FDF4', padding: '8px 12px', borderRadius: 8 }}>
+                  ✓ JSON ถูกต้อง — พร้อมใช้งาน
+                </div>
+              )}
+              {!arFlexJson.trim() && (
+                <div style={{ fontSize: 12, color: '#64748B', background: '#F8FAFC', padding: '10px 12px', borderRadius: 8, border: '1px dashed #E2E8F0' }}>
+                  💡 หากว่างไว้ จะใช้ Flex template มาตรฐานของระบบ (สวยงามอยู่แล้ว)
+                </div>
+              )}
             </div>
-            <textarea
-              value={arTemplate}
-              onChange={(e) => setArTemplate(e.target.value)}
-              rows={4}
-              style={{
-                width: '100%', padding: '11px 13px', borderRadius: 12, border: '1.5px solid #E2E8F0',
-                fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', lineHeight: 1.6,
-                resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#fff',
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#06C755'}
-              onBlur={(e) => e.target.style.borderColor = '#E2E8F0'}
-            />
-          </div>
-          <div style={{ background: '#F8FAFC', borderRadius: 12, padding: '12px 14px', border: '1px solid #E2E8F0' }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8', marginBottom: 6, letterSpacing: '.03em', textTransform: 'uppercase' }}>ตัวอย่างข้อความ</div>
-            <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{arPreview}</div>
-          </div>
+          )}
+
+          {/* text mode */}
+          {arMode === 'text' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B' }}>
+                เทมเพลตข้อความ
+                <span style={{ marginLeft: 10, fontSize: 11.5, color: '#94A3B8', fontWeight: 500 }}>
+                  ใช้ <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{name}}'}</code> และ{' '}
+                  <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{title}}'}</code>
+                </span>
+              </div>
+              <textarea
+                value={arTemplate}
+                onChange={(e) => setArTemplate(e.target.value)}
+                rows={4}
+                style={{
+                  width: '100%', padding: '11px 13px', borderRadius: 12, border: '1.5px solid #E2E8F0',
+                  fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', lineHeight: 1.6,
+                  resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#fff',
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#06C755'}
+                onBlur={(e) => e.target.style.borderColor = '#E2E8F0'}
+              />
+              <div style={{ background: '#F8FAFC', borderRadius: 12, padding: '12px 14px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8', marginBottom: 6, letterSpacing: '.03em', textTransform: 'uppercase' }}>ตัวอย่าง</div>
+                <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{arPreview}</div>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <FillBtn icon="save" onClick={saveAutoReply}>{arSaving ? 'กำลังบันทึก…' : 'บันทึก'}</FillBtn>
+            <FillBtn icon="save" onClick={saveAutoReply} disabled={arMode === 'flex' && !!arFlexError}>
+              {arSaving ? 'กำลังบันทึก…' : 'บันทึก'}
+            </FillBtn>
           </div>
         </div>
       </Card>

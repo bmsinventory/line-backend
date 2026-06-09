@@ -50,17 +50,45 @@ function dbInsert(table, data) {
 }
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
-function getAutoReplyFlex(name, title) {
-  try {
-    const s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-    if (s.autoReplyEnabled === false) return null;
-  } catch { /* ใช้ค่า default */ }
+
+// แทนที่ {{name}} / {{title}} ใน Flex JSON tree แบบ recursive (ปลอดภัยกับ special chars)
+function replaceFlex(node, name, title) {
+  if (typeof node === 'string') return node.replace(/\{\{name\}\}/g, name).replace(/\{\{title\}\}/g, title);
+  if (Array.isArray(node)) return node.map(n => replaceFlex(n, name, title));
+  if (node && typeof node === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(node)) out[k] = replaceFlex(v, name, title);
+    return out;
+  }
+  return node;
+}
+
+function getAutoReply(name, title) {
+  let s = {};
+  try { s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')); } catch { /* use defaults */ }
+  if (s.autoReplyEnabled === false) return null;
 
   const displayTitle = title.length > 80 ? title.slice(0, 77) + '...' : title;
 
+  // โหมด text
+  if (s.autoReplyMode === 'text') {
+    const tmpl = (s.autoReplyTemplate || '✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 "{{title}}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้')
+      .replace(/\{\{name\}\}/g, name).replace(/\{\{title\}\}/g, displayTitle);
+    return { type: 'text', text: tmpl };
+  }
+
+  // โหมด flex + custom JSON
+  if (s.autoReplyFlexJson && s.autoReplyFlexJson.trim()) {
+    try {
+      const parsed = JSON.parse(s.autoReplyFlexJson);
+      return { type: 'flex', altText: `✅ รับเรื่องแล้วครับ คุณ${name}`, contents: replaceFlex(parsed, name, displayTitle) };
+    } catch { /* ถ้า JSON เสีย ใช้ default */ }
+  }
+
+  // โหมด flex + default template
   return {
     type: 'flex',
-    altText: `✅ รับเรื่องแล้วครับ คุณ${name}: ${title}`,
+    altText: `✅ รับเรื่องแล้วครับ คุณ${name}`,
     contents: {
       type: 'bubble',
       size: 'kilo',
@@ -115,7 +143,7 @@ function getAutoReplyFlex(name, title) {
       styles: { footer: { separator: true } },
     },
   };
-}
+}  // end getAutoReply
 
 // ฟังก์ชันสร้าง initials จากชื่อ
 // ใช้ Array.from() เพื่อ iterate Unicode code points (ป้องกัน emoji surrogate pair)
@@ -405,9 +433,9 @@ router.post('/line', async (req, res) => {
         sse.broadcast();
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
 
-        // แจ้งยืนยันกลับในกลุ่ม (Flex Message)
+        // แจ้งยืนยันกลับในกลุ่ม (Flex หรือ text ตาม settings)
         try {
-          const autoReply = getAutoReplyFlex(reporterName, title);
+          const autoReply = getAutoReply(reporterName, title);
           if (autoReply) {
             await lineClient.pushMessage({ to: lineGroupId, messages: [autoReply] });
           }

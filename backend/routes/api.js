@@ -9,7 +9,9 @@ const sse = require('../lib/sse');
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
 const DEFAULT_SETTINGS = {
   autoReplyEnabled: true,
+  autoReplyMode: 'flex',        // 'flex' | 'text'
   autoReplyTemplate: '✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 "{{title}}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้',
+  autoReplyFlexJson: '',        // custom flex contents JSON (bubble/carousel)
 };
 function loadAppSettings() {
   try { return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) }; }
