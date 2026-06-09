@@ -1,9 +1,24 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { validateSignature } = require('@line/bot-sdk');
 const { randomUUID } = require('crypto');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
+
+const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
+function getAutoReplyText(name, title) {
+  try {
+    const s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+    if (s.autoReplyEnabled === false) return null;
+    return (s.autoReplyTemplate || '')
+      .replace(/\{\{name\}\}/g, name)
+      .replace(/\{\{title\}\}/g, title);
+  } catch {
+    return `✅ รับเรื่องแล้วครับ คุณ${name}\n📋 "${title}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้`;
+  }
+}
 
 // ฟังก์ชันสร้าง initials จากชื่อ
 function makeInitials(name) {
@@ -235,12 +250,15 @@ router.post('/line', async (req, res) => {
         });
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
 
-        // แจ้งยืนยันกลับในกลุ่ม
+        // แจ้งยืนยันกลับในกลุ่ม (ใช้ template จาก app-settings.json)
         try {
-          await lineClient.pushMessage({
-            to: lineGroupId,
-            messages: [{ type: 'text', text: `✅ รับเรื่องแล้วครับ คุณ${reporterName}\n📋 "${title}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้` }],
-          });
+          const autoReplyText = getAutoReplyText(reporterName, title);
+          if (autoReplyText) {
+            await lineClient.pushMessage({
+              to: lineGroupId,
+              messages: [{ type: 'text', text: autoReplyText }],
+            });
+          }
         } catch { /* ถ้าส่งไม่ได้ ไม่ต้อง block */ }
         } // end if shouldCreate
       } // end else (no existing issue)

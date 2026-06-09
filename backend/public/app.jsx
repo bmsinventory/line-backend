@@ -448,15 +448,25 @@ function App() {
     boot();
   }, []);
 
-  /* ---- Realtime subscription (เริ่มหลัง authed เท่านั้น) ---- */
+  /* ---- Realtime subscription + polling fallback ---- */
   useEffect(() => {
-    if (!authed || !window.supabaseClient) return;
+    if (!authed) return;
+
+    // Polling ทุก 8 วินาที รองรับกรณี Supabase Replication ยังไม่ได้เปิดใช้
+    const poll = setInterval(fetchIssues, 8000);
+
+    if (!window.supabaseClient) return () => clearInterval(poll);
+
     const channel = window.supabaseClient
       .channel('db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' },   fetchIssues)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, fetchIssues)
       .subscribe((status) => console.log('[Realtime]', status));
-    return () => channel.unsubscribe();
+
+    return () => {
+      channel.unsubscribe();
+      clearInterval(poll);
+    };
   }, [authed]);
 
   /* ---- อัปเดต issue ---- */

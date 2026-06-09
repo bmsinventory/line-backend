@@ -1,0 +1,4 @@
+{
+  "autoReplyEnabled": true,
+  "autoReplyTemplate": "✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 \"{{title}}\"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้"
+}

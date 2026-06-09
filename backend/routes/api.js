@@ -1,7 +1,19 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
+
+const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
+const DEFAULT_SETTINGS = {
+  autoReplyEnabled: true,
+  autoReplyTemplate: '✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 "{{title}}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้',
+};
+function loadAppSettings() {
+  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) }; }
+  catch { return { ...DEFAULT_SETTINGS }; }
+}
 
 const STATUSES = {
   new:         'ใหม่',
@@ -425,6 +437,21 @@ router.put('/settings/:key', async (req, res) => {
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// =====================================================
+// APP SETTINGS (file-based: backend/app-settings.json)
+// =====================================================
+router.get('/app-settings', (req, res) => res.json(loadAppSettings()));
+
+router.patch('/app-settings', (req, res) => {
+  const updated = { ...loadAppSettings(), ...req.body };
+  try {
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(updated, null, 2));
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

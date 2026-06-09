@@ -847,6 +847,32 @@ function ConnectionSection({ toast }) {
     return { ...g, connected: !g.connected };
   }));
 
+  const [arEnabled, setArEnabled] = useState(true);
+  const [arTemplate, setArTemplate] = useState('✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 "{{title}}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้');
+  const [arSaving, setArSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/app-settings').then(r => r.json()).then(s => {
+      setArEnabled(s.autoReplyEnabled !== false);
+      setArTemplate(s.autoReplyTemplate || '');
+    }).catch(() => {});
+  }, []);
+
+  const saveAutoReply = async () => {
+    setArSaving(true);
+    try {
+      await fetch('/api/app-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoReplyEnabled: arEnabled, autoReplyTemplate: arTemplate }),
+      });
+      toast('บันทึกข้อความตอบรับแล้ว');
+    } catch { toast('เกิดข้อผิดพลาด'); }
+    finally { setArSaving(false); }
+  };
+
+  const arPreview = arTemplate.replace(/\{\{name\}\}/g, 'ชื่อผู้แจ้ง').replace(/\{\{title\}\}/g, 'หัวข้อปัญหา');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SecHead title="การเชื่อมต่อ LINE" desc="จัดการ Official Account, กลุ่ม และ OpenChat ที่เชื่อมกับระบบ" />
@@ -871,6 +897,47 @@ function ConnectionSection({ toast }) {
           </div>
         </div>
         <UrlRow label="Callback URL (ใส่ใน LINE Login Channel)" url={callbackUrl} toast={toast} />
+      </Card>
+
+      <Card style={{ padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
+          <span style={{ width: 46, height: 46, borderRadius: 13, background: '#0B3D2E', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="message" size={22} /></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif' }}>ข้อความตอบรับอัตโนมัติ</div>
+            <div style={{ fontSize: 12.5, color: '#64748B', fontWeight: 500, marginTop: 2 }}>ส่งในกลุ่ม LINE ทันทีเมื่อมีการแจ้งปัญหาใหม่</div>
+          </div>
+          <Toggle on={arEnabled} onChange={setArEnabled} />
+        </div>
+        <div style={{ opacity: arEnabled ? 1 : 0.45, pointerEvents: arEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>
+              เทมเพลตข้อความ
+              <span style={{ marginLeft: 10, fontSize: 11.5, color: '#94A3B8', fontWeight: 500 }}>
+                ใช้ <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{name}}'}</code> = ชื่อผู้แจ้ง &nbsp;
+                <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{title}}'}</code> = หัวข้อปัญหา
+              </span>
+            </div>
+            <textarea
+              value={arTemplate}
+              onChange={(e) => setArTemplate(e.target.value)}
+              rows={4}
+              style={{
+                width: '100%', padding: '11px 13px', borderRadius: 12, border: '1.5px solid #E2E8F0',
+                fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', lineHeight: 1.6,
+                resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#fff',
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#06C755'}
+              onBlur={(e) => e.target.style.borderColor = '#E2E8F0'}
+            />
+          </div>
+          <div style={{ background: '#F8FAFC', borderRadius: 12, padding: '12px 14px', border: '1px solid #E2E8F0' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8', marginBottom: 6, letterSpacing: '.03em', textTransform: 'uppercase' }}>ตัวอย่างข้อความ</div>
+            <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{arPreview}</div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <FillBtn icon="save" onClick={saveAutoReply}>{arSaving ? 'กำลังบันทึก…' : 'บันทึก'}</FillBtn>
+          </div>
+        </div>
       </Card>
 
       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#94A3B8', padding: '0 4px', letterSpacing: '.02em' }}>กลุ่มและ OpenChat ({groups.length} กลุ่ม)</div>
