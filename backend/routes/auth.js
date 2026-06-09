@@ -163,7 +163,7 @@ router.get('/line', (req, res) => {
     client_id:     LINE_CHANNEL_ID,
     redirect_uri:  LINE_REDIRECT_URI,
     state,
-    scope:         'profile openid',
+    scope:         'profile',
   });
   res.redirect('https://access.line.me/oauth2/v2.1/authorize?' + params.toString());
 });
@@ -190,10 +190,13 @@ router.get('/line/callback', async (req, res) => {
         client_id: LINE_CHANNEL_ID, client_secret: LINE_CHANNEL_SECRET,
       }).toString(),
     });
-    const tokenData = await tokenRes.json();
+    const tokenRaw = await tokenRes.text();
+    console.log(`[Auth LINE] token HTTP ${tokenRes.status}:`, tokenRaw);
+    let tokenData;
+    try { tokenData = JSON.parse(tokenRaw); } catch { tokenData = {}; }
     if (!tokenData.access_token) {
       console.error('[Auth LINE] token failed:', tokenData);
-      return res.redirect('/?auth_error=token_failed');
+      return res.redirect('/?auth_error=token_failed&detail=' + encodeURIComponent(tokenData.error || tokenRes.status));
     }
 
     // ดึง profile
