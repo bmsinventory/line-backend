@@ -171,11 +171,15 @@ router.get('/line', (req, res) => {
 // GET /api/auth/line/callback — LINE redirect กลับมาพร้อม code
 router.get('/line/callback', async (req, res) => {
   const { code, state, error } = req.query;
+  console.log('[Auth LINE] callback received — code:', !!code, 'state:', state?.slice(0,20), 'error:', error, 'ip:', req.ip);
+
   if (error) return res.redirect('/?auth_error=' + (error === 'access_denied' ? 'access_denied' : 'server_error'));
   if (!code) return res.redirect('/?auth_error=server_error');
 
   // ตรวจ CSRF state ด้วย HMAC (ไม่ต้องพึ่ง cookie → ทำงานได้ใน LINE WebView / mobile)
-  if (!verifyOAuthState(state)) {
+  const stateOk = verifyOAuthState(state);
+  console.log('[Auth LINE] state verify:', stateOk, 'parts:', state?.split('.').length);
+  if (!stateOk) {
     return res.redirect('/?auth_error=invalid_state');
   }
 
