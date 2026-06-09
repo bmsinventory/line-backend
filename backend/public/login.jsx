@@ -103,9 +103,39 @@ function Login({ onLogin }) {
     }
   };
 
-  const loginWithLine = () => {
+  const loginWithLine = async () => {
     setLineLoading(true);
-    window.location.href = '/api/auth/line';
+    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (!isMobileDevice) {
+      window.location.href = '/api/auth/line';
+      return;
+    }
+    try {
+      const r = await fetch('/api/auth/line/state');
+      if (!r.ok) { window.location.href = '/api/auth/line'; return; }
+      const { state, clientId, redirectUri, error } = await r.json();
+      if (error) { setError('LINE Login ยังไม่ได้ตั้งค่า'); setLineLoading(false); return; }
+
+      const params = new URLSearchParams({
+        response_type: 'code', client_id: clientId,
+        redirect_uri: redirectUri, state, scope: 'profile openid',
+      }).toString();
+
+      const appUrl = `line://oauth2/v2.1/authorize?${params}`;
+      const webUrl = `https://access.line.me/oauth2/v2.1/authorize?${params}`;
+
+      // เปิด LINE App ถ้าติดตั้งอยู่ — ถ้าไม่มี App fallback ไป web หลัง 1.5s
+      let opened = false;
+      const onBlur = () => { opened = true; };
+      window.addEventListener('blur', onBlur, { once: true });
+      window.location.href = appUrl;
+      setTimeout(() => {
+        window.removeEventListener('blur', onBlur);
+        if (!opened) window.location.href = webUrl;
+      }, 1500);
+    } catch {
+      window.location.href = '/api/auth/line';
+    }
   };
 
   const stats = [

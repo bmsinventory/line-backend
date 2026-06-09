@@ -235,6 +235,14 @@ router.get('/line/callback', async (req, res) => {
 // GET /api/auth/line/errors
 router.get('/line/errors', (_req, res) => res.json(LINE_ERROR_MSGS));
 
+// GET /api/auth/line/state — ส่ง signed state สำหรับ mobile LINE app deep link
+router.get('/line/state', (req, res) => {
+  if (!LINE_CHANNEL_ID || !LINE_REDIRECT_URI) {
+    return res.status(503).json({ error: 'line_not_configured' });
+  }
+  res.json({ state: makeOAuthState(), clientId: LINE_CHANNEL_ID, redirectUri: LINE_REDIRECT_URI });
+});
+
 // =====================================================
 // POST /api/auth/logout
 // =====================================================
