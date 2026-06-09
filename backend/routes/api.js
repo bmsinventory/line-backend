@@ -4,6 +4,7 @@ const path = require('path');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
+const sse = require('../lib/sse');
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
 const DEFAULT_SETTINGS = {
@@ -29,6 +30,30 @@ router.get('/config', (_req, res) => {
   res.json({
     supabaseUrl:     process.env.SUPABASE_URL,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+  });
+});
+
+// =====================================================
+// SSE — realtime event stream
+// =====================================================
+router.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  res.write('event: connected\ndata: {}\n\n');
+  sse.subscribe(res);
+
+  // Heartbeat ทุก 25 วินาที เพื่อป้องกัน proxy timeout
+  const heartbeat = setInterval(() => {
+    try { res.write(':ping\n\n'); } catch { clearInterval(heartbeat); sse.unsubscribe(res); }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sse.unsubscribe(res);
   });
 });
 
@@ -230,6 +255,7 @@ router.patch('/issues/:id', async (req, res) => {
   }
   if (systemMsgs.length) await supabase.from('messages').insert(systemMsgs);
 
+  sse.broadcast();
   res.json(issue);
 });
 
@@ -341,6 +367,7 @@ router.post('/issues/:id/reply', async (req, res) => {
   // อัปเดต unread = false (agent ดูแล้ว)
   await supabase.from('issues').update({ unread: false }).eq('id', id);
 
+  sse.broadcast();
   res.json({ ok: true });
 });
 

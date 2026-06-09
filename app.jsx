@@ -448,23 +448,20 @@ function App() {
     boot();
   }, []);
 
-  /* ---- Realtime subscription + polling fallback ---- */
+  /* ---- SSE realtime (primary) + polling fallback ---- */
   useEffect(() => {
     if (!authed) return;
 
-    // Polling ทุก 8 วินาที รองรับกรณี Supabase Replication ยังไม่ได้เปิดใช้
-    const poll = setInterval(fetchIssues, 8000);
+    // SSE — backend push ทันทีเมื่อมีการเปลี่ยนแปลงข้อมูล
+    const es = new EventSource('/api/events');
+    es.addEventListener('update', fetchIssues);
+    es.addEventListener('error', () => console.warn('[SSE] reconnecting…'));
 
-    if (!window.supabaseClient) return () => clearInterval(poll);
-
-    const channel = window.supabaseClient
-      .channel('db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' },   fetchIssues)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, fetchIssues)
-      .subscribe((status) => console.log('[Realtime]', status));
+    // Polling ทุก 30 วินาที เป็น ultimate fallback
+    const poll = setInterval(fetchIssues, 30000);
 
     return () => {
-      channel.unsubscribe();
+      es.close();
       clearInterval(poll);
     };
   }, [authed]);

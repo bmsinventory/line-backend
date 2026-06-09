@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
+const sse = require('../lib/sse');
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
 function getAutoReplyText(name, title) {
@@ -153,6 +154,7 @@ router.post('/line', async (req, res) => {
             line_message_id: event.message.id,
             created_at: timestamp,
           });
+          sse.broadcast();
           console.log(`[Webhook] ทีมงาน ${memberMatch.name} ตอบใน issue ${latestIssue.id}`);
         }
         continue;
@@ -194,6 +196,7 @@ router.post('/line', async (req, res) => {
         await supabase.from('issues')
           .update({ unread: true })
           .eq('id', existingIssue.id);
+        sse.broadcast();
         console.log(`[Webhook] เพิ่มข้อความใน issue ${existingIssue.id}`);
 
       } else {
@@ -248,6 +251,7 @@ router.post('/line', async (req, res) => {
           quote_token:     event.message.quoteToken || null,
           created_at: timestamp,
         });
+        sse.broadcast();
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
 
         // แจ้งยืนยันกลับในกลุ่ม (ใช้ template จาก app-settings.json)
