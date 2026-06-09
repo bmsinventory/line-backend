@@ -220,6 +220,8 @@ router.post('/line', async (req, res) => {
         } else {
           title = rawText.slice(0, 80) || text.slice(0, 80);
         }
+        // ลบ @mention ออกจากหัวข้อ
+        title = title.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
 
         const { data: newIssue, error } = await supabase
           .from('issues')
