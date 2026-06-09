@@ -95,40 +95,78 @@ function ColorPicker({ value, onChange }) {
 /* ====================================================================== */
 /* SECTION: Profile                                                       */
 /* ====================================================================== */
-function ProfileSection({ toast }) {
-  const [name, setName] = useState('คุณ (แอดมิน)');
-  const [email, setEmail] = useState('admin@line-track.co.th');
-  const [phone, setPhone] = useState('081-234-5678');
-  const [lang, setLang] = useState('ไทย');
+function ProfileSection({ toast, currentUser }) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
+  const [pw, setPw] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [role, setRole] = useState('');
+
+  useEffect(() => {
+    fetch('/api/me').then(r => r.json()).then(data => {
+      setForm({ name: data.name || '', email: data.email || '', phone: data.phone || '' });
+      setRole(data.role || currentUser?.role || '');
+      setLoading(false);
+    }).catch(() => {
+      setForm({ name: currentUser?.name || '', email: '', phone: '' });
+      setRole(currentUser?.role || '');
+      setLoading(false);
+    });
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      toast('บันทึกโปรไฟล์แล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setSaving(false); }
+  };
+
+  const savePassword = async () => {
+    if (pw !== pwConfirm) { toast('รหัสผ่านไม่ตรงกัน'); return; }
+    if (pw.length < 6) { toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'); return; }
+    setPwSaving(true);
+    try {
+      const res = await fetch('/api/me/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      setChangingPw(false); setPw(''); setPwConfirm('');
+      toast('เปลี่ยนรหัสผ่านแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setPwSaving(false); }
+  };
+
+  const initials = form.name ? form.name.slice(0, 2) : 'ME';
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 14 }}>กำลังโหลด…</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SecHead title="โปรไฟล์ของฉัน" desc="ข้อมูลบัญชีและการแสดงผลของคุณในระบบ" />
       <Card style={{ padding: 22 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingBottom: 20, marginBottom: 20, borderBottom: '1px solid #F1F5F9' }}>
-          <Avatar initials="ME" color="#06C755" size={64} ring />
+          <Avatar initials={initials} color="#06C755" size={64} ring />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif' }}>{name}</div>
-            <div style={{ fontSize: 13, color: '#94A3B8', fontWeight: 600, marginTop: 2 }}>แอดมินระบบ · เข้าใช้ล่าสุดวันนี้</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#0F172A', fontFamily: 'Anuphan, sans-serif' }}>{form.name || 'ผู้ใช้งาน'}</div>
+            <div style={{ fontSize: 13, color: '#94A3B8', fontWeight: 600, marginTop: 2 }}>{role}</div>
           </div>
-          <GhostBtn icon="image">เปลี่ยนรูป</GhostBtn>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-          <Txt label="ชื่อที่แสดง" value={name} onChange={(e) => setName(e.target.value)} />
-          <Txt label="อีเมล" value={email} onChange={(e) => setEmail(e.target.value)} type="email" />
-          <Txt label="เบอร์โทรศัพท์" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <div>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 6 }}>ภาษา</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {['ไทย', 'English'].map((l) => (
-                <button key={l} onClick={() => setLang(l)} style={{
-                  flex: 1, height: 42, borderRadius: 11, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 700,
-                  border: '1.5px solid ' + (lang === l ? '#06C755' : '#E2E8F0'), background: lang === l ? '#06C75512' : '#fff',
-                  color: lang === l ? '#06C755' : '#64748B',
-                }}>{l}</button>
-              ))}
-            </div>
-          </div>
+          <Txt label="ชื่อที่แสดง" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} />
+          <Txt label="อีเมล" value={form.email} onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))} type="email" />
+          <Txt label="เบอร์โทรศัพท์" value={form.phone} onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))} />
         </div>
       </Card>
 
@@ -137,14 +175,23 @@ function ProfileSection({ toast }) {
           <span style={{ width: 40, height: 40, borderRadius: 12, background: '#0B3D2E', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="shield" size={20} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1E293B' }}>รหัสผ่านและความปลอดภัย</div>
-            <div style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 500, marginTop: 1 }}>เปลี่ยนรหัสผ่านล่าสุดเมื่อ 3 เดือนที่แล้ว</div>
           </div>
-          <GhostBtn icon="lock">เปลี่ยนรหัสผ่าน</GhostBtn>
+          {!changingPw && <GhostBtn icon="lock" onClick={() => setChangingPw(true)}>เปลี่ยนรหัสผ่าน</GhostBtn>}
         </div>
+        {changingPw && (
+          <div style={{ marginTop: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', padding: '14px 16px', background: '#F0FDF4', borderRadius: 12, border: '1.5px solid #BBF7D0' }}>
+            <Txt label="รหัสผ่านใหม่" type="password" value={pw} onChange={(e) => setPw(e.target.value)} width={200} />
+            <Txt label="ยืนยันรหัสผ่าน" type="password" value={pwConfirm} onChange={(e) => setPwConfirm(e.target.value)} width={200} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <GhostBtn color="#64748B" onClick={() => { setChangingPw(false); setPw(''); setPwConfirm(''); }}>ยกเลิก</GhostBtn>
+              <FillBtn icon="save" onClick={savePassword}>{pwSaving ? 'กำลังบันทึก…' : 'บันทึก'}</FillBtn>
+            </div>
+          </div>
+        )}
       </Card>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <FillBtn icon="save" onClick={() => toast('บันทึกโปรไฟล์แล้ว')}>บันทึกการเปลี่ยนแปลง</FillBtn>
+        <FillBtn icon="save" onClick={save}>{saving ? 'กำลังบันทึก…' : 'บันทึกการเปลี่ยนแปลง'}</FillBtn>
       </div>
     </div>
   );
@@ -860,11 +907,23 @@ const SETTINGS_NAV = [
   { id: 'connection', label: 'เชื่อมต่อ LINE', icon: 'link' },
 ];
 
-function Settings({ isMobile, toast }) {
+function Settings({ isMobile, toast, currentUser }) {
+  const isAdmin = currentUser?.role === 'แอดมิน';
   const [sec, setSec] = useState('profile');
 
+  // non-admin: only show profile, no sidebar nav
+  if (!isAdmin) {
+    return (
+      <div style={{ height: '100%', overflowY: 'auto', padding: isMobile ? '18px 16px 40px' : '26px 32px 48px', background: '#F4F7F6' }}>
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          <ProfileSection toast={toast} currentUser={currentUser} />
+        </div>
+      </div>
+    );
+  }
+
   const content = {
-    profile: <ProfileSection toast={toast} />,
+    profile: <ProfileSection toast={toast} currentUser={currentUser} />,
     team: <TeamSection toast={toast} />,
     categories: <CategoriesSection toast={toast} />,
     replies: <RepliesSection toast={toast} />,

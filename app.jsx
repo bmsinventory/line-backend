@@ -536,7 +536,7 @@ function App() {
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}
           {view === 'dashboard' && <Dashboard issues={issues} isMobile={isMobile} />}
           {view === 'groups'    && <GroupsView issues={issues} isMobile={isMobile} />}
-          {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} />}
+          {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} currentUser={currentUser} />}
         </div>
       </div>
       {isMobile && <NavRail view={view} setView={setView} isMobile={true} openCount={openCount} onLogout={doLogout} currentUser={currentUser} />}

@@ -104,6 +104,42 @@ router.delete('/members/:id', async (req, res) => {
 });
 
 // =====================================================
+// ME — current user profile
+// =====================================================
+router.get('/me', async (req, res) => {
+  const { memberId } = req.admin;
+  const { data, error } = await supabase
+    .from('members').select('id,name,role,email,phone,color,initials,line_user_id').eq('id', memberId).single();
+  if (error) return res.status(404).json({ error: 'ไม่พบข้อมูลผู้ใช้' });
+  res.json(data);
+});
+
+router.patch('/me', async (req, res) => {
+  const { memberId } = req.admin;
+  const patch = {};
+  ['name', 'email', 'phone'].forEach(k => {
+    if (req.body[k] !== undefined) patch[k] = req.body[k] === '' ? null : req.body[k];
+  });
+  if (patch.name) patch.initials = patch.name.slice(0, 2);
+  if (patch.email) patch.email = patch.email.toLowerCase();
+  const { data, error } = await supabase
+    .from('members').update(patch).eq('id', memberId).select('id,name,role,email,phone').single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+router.post('/me/password', async (req, res) => {
+  const { memberId } = req.admin;
+  const { password } = req.body;
+  if (!password || password.length < 6)
+    return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' });
+  const { hashPassword } = require('../lib/auth');
+  const { error } = await supabase.from('members').update({ password_hash: hashPassword(password) }).eq('id', memberId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// =====================================================
 // ISSUES
 // =====================================================
 
