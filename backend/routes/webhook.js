@@ -50,16 +50,71 @@ function dbInsert(table, data) {
 }
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
-function getAutoReplyText(name, title) {
+function getAutoReplyFlex(name, title) {
   try {
     const s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
     if (s.autoReplyEnabled === false) return null;
-    return (s.autoReplyTemplate || '')
-      .replace(/\{\{name\}\}/g, name)
-      .replace(/\{\{title\}\}/g, title);
-  } catch {
-    return `✅ รับเรื่องแล้วครับ คุณ${name}\n📋 "${title}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้`;
-  }
+  } catch { /* ใช้ค่า default */ }
+
+  const displayTitle = title.length > 80 ? title.slice(0, 77) + '...' : title;
+
+  return {
+    type: 'flex',
+    altText: `✅ รับเรื่องแล้วครับ คุณ${name}: ${title}`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: '✅  รับเรื่องแล้วครับ', color: '#ffffff', size: 'md', weight: 'bold', align: 'center' },
+        ],
+        backgroundColor: '#06C755',
+        paddingAll: '18px',
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        paddingAll: '18px',
+        contents: [
+          {
+            type: 'box', layout: 'horizontal', alignItems: 'center',
+            contents: [
+              { type: 'text', text: '👤 ผู้แจ้ง', size: 'sm', color: '#888888', flex: 3 },
+              { type: 'text', text: name, size: 'sm', color: '#111111', weight: 'bold', flex: 7, wrap: true },
+            ],
+          },
+          { type: 'separator' },
+          {
+            type: 'box', layout: 'horizontal', alignItems: 'flex-start',
+            contents: [
+              { type: 'text', text: '📋 ปัญหา', size: 'sm', color: '#888888', flex: 3 },
+              { type: 'text', text: displayTitle, size: 'sm', color: '#111111', flex: 7, wrap: true },
+            ],
+          },
+          { type: 'separator' },
+          {
+            type: 'box', layout: 'horizontal', alignItems: 'center',
+            contents: [
+              { type: 'text', text: '🔵 สถานะ', size: 'sm', color: '#888888', flex: 3 },
+              { type: 'text', text: 'รอดำเนินการ', size: 'sm', color: '#3B82F6', weight: 'bold', flex: 7 },
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        contents: [
+          { type: 'text', text: 'ทีมงานจะติดต่อกลับเร็ว ๆ นี้', size: 'xs', color: '#aaaaaa', align: 'center' },
+        ],
+      },
+      styles: { footer: { separator: true } },
+    },
+  };
 }
 
 // ฟังก์ชันสร้าง initials จากชื่อ
@@ -350,14 +405,11 @@ router.post('/line', async (req, res) => {
         sse.broadcast();
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
 
-        // แจ้งยืนยันกลับในกลุ่ม (ใช้ template จาก app-settings.json)
+        // แจ้งยืนยันกลับในกลุ่ม (Flex Message)
         try {
-          const autoReplyText = getAutoReplyText(reporterName, title);
-          if (autoReplyText) {
-            await lineClient.pushMessage({
-              to: lineGroupId,
-              messages: [{ type: 'text', text: autoReplyText }],
-            });
+          const autoReply = getAutoReplyFlex(reporterName, title);
+          if (autoReply) {
+            await lineClient.pushMessage({ to: lineGroupId, messages: [autoReply] });
           }
         } catch { /* ถ้าส่งไม่ได้ ไม่ต้อง block */ }
         } // end if shouldCreate
