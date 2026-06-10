@@ -1,8 +1,9 @@
 const supabase = require('./supabase');
 
 const GOOGLE_AI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-// Gemma 4 via Google AI Studio — เปลี่ยน model ได้ผ่าน env GEMMA_MODEL
-const DEFAULT_MODEL = 'gemma-4-27b-it';
+// ใช้ gemma-3-27b-it เป็น default (รองรับผ่าน Google AI Studio)
+// เปลี่ยนได้ผ่าน env GEMMA_MODEL เช่น gemma-3-27b-it, gemini-2.0-flash
+const DEFAULT_MODEL = 'gemma-3-27b-it';
 
 /**
  * จัดหมวดหมู่ issue โดย Gemma ผ่าน Google AI Studio API
@@ -45,7 +46,8 @@ async function classifyIssue({ title, thread = [] }) {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`Google AI error ${res.status}: ${errText}`);
+    console.error(`[Classify] Google AI error ${res.status} (model=${model}): ${errText.slice(0, 300)}`);
+    throw new Error(`Google AI ${res.status}: ${errText.slice(0, 200)}`);
   }
 
   const data = await res.json();
