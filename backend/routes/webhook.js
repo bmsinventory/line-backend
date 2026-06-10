@@ -145,6 +145,20 @@ function getAutoReply(name, title) {
   };
 }  // end getAutoReply
 
+// ตัด @mention ออกจากข้อความโดยใช้ตำแหน่ง index+length จาก LINE API
+// ครอบคลุมชื่อที่มีเว้นวรรค เช่น @Thiraphong Chekwong (length=21 ไม่ใช่แค่ @Thiraphong)
+function stripMentions(rawText, mentionees) {
+  if (!mentionees || mentionees.length === 0) {
+    return rawText.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
+  }
+  const chars = Array.from(rawText); // ใช้ Array.from เพื่อ handle Unicode/emoji
+  const sorted = [...mentionees].sort((a, b) => b.index - a.index); // ลบจากท้ายก่อนเพื่อรักษา index
+  for (const m of sorted) {
+    chars.splice(m.index, m.length);
+  }
+  return chars.join('').replace(/\s+/g, ' ').trim();
+}
+
 // ฟังก์ชันสร้าง initials จากชื่อ
 // ใช้ Array.from() เพื่อ iterate Unicode code points (ป้องกัน emoji surrogate pair)
 function makeInitials(name) {
@@ -244,7 +258,8 @@ router.post('/line', async (req, res) => {
     const msgType     = event.message.type; // 'text' | 'image' | 'video' | ...
 
     const rawText    = msgType === 'text' ? event.message.text : '';
-    const text       = (rawText ? rawText.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim() : '') || `[${msgType}]`;
+    const mentionees = event.message?.mention?.mentionees || [];
+    const text       = (rawText ? stripMentions(rawText, mentionees) : '') || `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
 
     // โหมด 2: คีย์เวิร์ด INV ตามด้วยปัญหา (ใช้ได้ทุกกลุ่ม ทุกโหมด)
@@ -405,8 +420,8 @@ router.post('/line', async (req, res) => {
           // โหมด 1: title = ข้อความเต็ม (auto-track)
           title = rawText.slice(0, 80) || text.slice(0, 80);
         }
-        // ลบ @mention ออกจากหัวข้อ
-        title = title.replace(/@\S+/g, '').replace(/\s+/g, ' ').trim();
+        // ลบ @mention ออกจากหัวข้อ (ใช้ตำแหน่ง exact จาก LINE API ครอบคลุมชื่อที่มี space)
+        title = stripMentions(title, mentionees);
 
         const newIssueId = randomUUID();
         const issueData = {
