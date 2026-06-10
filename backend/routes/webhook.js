@@ -257,9 +257,11 @@ router.post('/line', async (req, res) => {
     const timestamp   = new Date(event.timestamp).toISOString();
     const msgType     = event.message.type; // 'text' | 'image' | 'video' | ...
 
-    const rawText    = msgType === 'text' ? event.message.text : '';
+    const rawText   = msgType === 'text' ? event.message.text : '';
     const mentionees = event.message?.mention?.mentionees || [];
-    const text       = (rawText ? stripMentions(rawText, mentionees) : '') || `[${msgType}]`;
+    // strip mentions จาก rawText ก่อนเพื่อให้ตำแหน่ง index ถูกต้อง
+    const cleanText = rawText ? stripMentions(rawText, mentionees) : '';
+    const text      = cleanText || `[${msgType}]`;
     const attachment = msgType === 'image' ? 'image' : msgType === 'video' ? 'video' : null;
 
     // โหมด 2: คีย์เวิร์ด INV ตามด้วยปัญหา (ใช้ได้ทุกกลุ่ม ทุกโหมด)
@@ -411,17 +413,23 @@ router.post('/line', async (req, res) => {
           console.log(`[Webhook] ข้อความทั่วไป ละเว้น — ต้อง @mention ทีมงาน หรือขึ้นต้นด้วย INV/แจ้งปัญหา`);
         } else {
         // สร้าง issue ใหม่
+        // ใช้ cleanText (mentions ถูก strip แล้ว) เป็นฐาน — ไม่ต้องเรียก stripMentions อีกรอบ
+        // เพราะ mentionees.index ชี้ไปที่ rawText ต้นฉบับ การเอาไปใช้กับ substring ทำให้ offset ผิด
         let title;
         if (triggerMatch) {
-          // โหมด 2: title = ข้อความหลัง INV
-          const titleRaw = rawText.slice(triggerMatch.length).replace(/^[:\s]+/, '').trim();
-          title = (titleRaw || rawText).slice(0, 80);
+          // โหมด 2: trigger (inv/แจ้งปัญหา) อยู่ต้น rawText
+          // ตรวจว่า cleanText ยังขึ้นต้นด้วย trigger หรือไม่
+          // (อาจไม่ขึ้นต้น ถ้า mention อยู่ก่อน trigger เช่น "@mention inv ทดสอบ")
+          if (cleanText.toLowerCase().startsWith(triggerMatch.toLowerCase())) {
+            const titleRaw = cleanText.slice(triggerMatch.length).replace(/^[:\s]+/, '').trim();
+            title = (titleRaw || cleanText).slice(0, 80);
+          } else {
+            title = cleanText.slice(0, 80);
+          }
         } else {
-          // โหมด 1: title = ข้อความเต็ม (auto-track)
-          title = rawText.slice(0, 80) || text.slice(0, 80);
+          // โหมด 1: @mention trigger — ใช้ cleanText ทั้งหมดเป็น title
+          title = cleanText.slice(0, 80);
         }
-        // ลบ @mention ออกจากหัวข้อ (ใช้ตำแหน่ง exact จาก LINE API ครอบคลุมชื่อที่มี space)
-        title = stripMentions(title, mentionees);
 
         const newIssueId = randomUUID();
         const issueData = {
