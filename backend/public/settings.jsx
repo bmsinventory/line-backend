@@ -202,21 +202,42 @@ function ProfileSection({ toast, currentUser }) {
 /* ====================================================================== */
 const ROLES = ['แอดมิน', 'ซัพพอร์ต', 'ทีมเทคนิค', 'ช่างซ่อม', 'การเงิน'];
 
+function TeamTypeSelect({ selected, onChange }) {
+  const types = (D.TEAM_TYPES || []).filter(t => t.is_active);
+  if (types.length === 0) return <span style={{ fontSize: 12, color: '#94A3B8' }}>ยังไม่มีประเภททีม</span>;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {types.map(t => {
+        const on = (selected || []).includes(t.id);
+        return (
+          <button key={t.id} onClick={() => onChange(on ? (selected || []).filter(id => id !== t.id) : [...(selected || []), t.id])} style={{
+            padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+            border: '1.5px solid ' + (on ? t.color : '#E2E8F0'),
+            background: on ? t.color + '18' : '#fff', color: on ? t.color : '#64748B', transition: 'all .1s',
+          }}>{t.team_name}</button>
+        );
+      })}
+    </div>
+  );
+}
+
 function TeamSection({ toast }) {
-  const [members, setMembers] = useState(() => D.MEMBERS.map((m) => ({ ...m })));
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nm, setNm] = useState('');
   const [role, setRole] = useState('ซัพพอร์ต');
   const [color, setColor] = useState('#3B82F6');
-  // expand panels — only one open at a time
-  const [expandedId, setExpandedId] = useState(null);   // Line ID panel
-  const [editId, setEditId] = useState(null);            // Edit info panel
+  const [newTeamTypeIds, setNewTeamTypeIds] = useState([]);
+  const [expandedId, setExpandedId] = useState(null);
+  const [editId, setEditId] = useState(null);
   const [lineIdDraft, setLineIdDraft] = useState('');
   const [editName, setEditName] = useState('');
   const [editColor, setEditColor] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editTeamTypeIds, setEditTeamTypeIds] = useState([]);
   const [pwId, setPwId] = useState(null);
   const [pwValue, setPwValue] = useState('');
   const [pwConfirm, setPwConfirm] = useState('');
@@ -224,89 +245,103 @@ function TeamSection({ toast }) {
 
   const syncGlobal = (arr) => { D.MEMBERS = arr; };
 
+  /* ── โหลดสมาชิกจาก API (ไม่ใช้ snapshot ของ D.MEMBERS) ── */
+  const fetchMembers = async () => {
+    try {
+      const res = await fetch('/api/members');
+      if (!res.ok) throw new Error('fetch failed');
+      const data = await res.json();
+      setMembers(data);
+      D.MEMBERS = data;
+    } catch (err) {
+      console.error('[TeamSection] fetchMembers:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchMembers().then(() => setLoading(false));
+
+    // Supabase Realtime: รีเฟรชทันทีเมื่อมีการเปลี่ยนแปลงตาราง members หรือ member_team_types
+    if (window.supabaseClient) {
+      const ch = window.supabaseClient
+        .channel('team-members-rt')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, fetchMembers)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'member_team_types' }, fetchMembers)
+        .subscribe();
+      return () => ch.unsubscribe();
+    }
+  }, []);
+
   const openLineId = (m) => {
-    setEditId(null);
-    setPwId(null);
+    setEditId(null); setPwId(null);
     setExpandedId(m.id === expandedId ? null : m.id);
     setLineIdDraft(m.line_user_id || '');
   };
   const openEdit = (m) => {
-    setExpandedId(null);
-    setPwId(null);
+    setExpandedId(null); setPwId(null);
     setEditId(m.id === editId ? null : m.id);
-    setEditName(m.name);
-    setEditColor(m.color);
-    setEditEmail(m.email || '');
-    setEditPhone(m.phone || '');
+    setEditName(m.name); setEditColor(m.color);
+    setEditEmail(m.email || ''); setEditPhone(m.phone || '');
+    setEditTeamTypeIds(m.team_type_ids || []);
   };
   const openPw = (m) => {
-    setExpandedId(null);
-    setEditId(null);
+    setExpandedId(null); setEditId(null);
     setPwId(m.id === pwId ? null : m.id);
-    setPwValue('');
-    setPwConfirm('');
+    setPwValue(''); setPwConfirm('');
   };
 
   const add = async () => {
     if (!nm.trim() || saving) return;
     const id = 'mx' + Date.now();
     const initials = nm.trim().slice(0, 2);
-    const member = { id, name: nm.trim(), role, color, initials };
     setSaving(true);
     try {
       const res = await fetch('/api/members', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(member),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: nm.trim(), role, color, initials, team_type_ids: newTeamTypeIds }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
       const saved = await res.json();
-      setMembers((arr) => { const next = [...arr, saved]; syncGlobal(next); return next; });
-      setNm(''); setAdding(false); toast('เพิ่มสมาชิกทีมแล้ว');
-    } catch (err) {
-      toast('เกิดข้อผิดพลาด: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
+      setMembers(arr => { const next = [...arr, saved]; syncGlobal(next); return next; });
+      setNm(''); setAdding(false); setNewTeamTypeIds([]);
+      toast('เพิ่มสมาชิกทีมแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setSaving(false); }
   };
 
   const remove = async (id) => {
     try {
       const res = await fetch('/api/members/' + id, { method: 'DELETE' });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
-      setMembers((arr) => { const next = arr.filter((m) => m.id !== id); syncGlobal(next); return next; });
+      setMembers(arr => { const next = arr.filter(m => m.id !== id); syncGlobal(next); return next; });
       toast('นำสมาชิกออกแล้ว');
-    } catch (err) {
-      toast('เกิดข้อผิดพลาด: ' + err.message);
-    }
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
   };
 
   const setRoleOf = async (id, r) => {
     try {
       const res = await fetch('/api/members/' + id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: r }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
-      setMembers((arr) => { const next = arr.map((m) => m.id === id ? { ...m, role: r } : m); syncGlobal(next); return next; });
-    } catch (err) {
-      toast('เกิดข้อผิดพลาด: ' + err.message);
-    }
+      const updated = await res.json();
+      setMembers(arr => { const next = arr.map(m => m.id === id ? { ...m, ...updated } : m); syncGlobal(next); return next; });
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
   };
 
   const saveLineId = async (id) => {
     try {
       const res = await fetch(`/api/members/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ line_user_id: lineIdDraft.trim() || null }),
       });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
       const updated = await res.json();
-      setMembers((arr) => arr.map((m) => m.id === id ? { ...m, line_user_id: updated.line_user_id } : m));
+      setMembers(arr => { const next = arr.map(m => m.id === id ? { ...m, ...updated } : m); syncGlobal(next); return next; });
       setExpandedId(null);
       toast('บันทึก Line User ID แล้ว');
-    } catch { toast('เกิดข้อผิดพลาด'); }
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
   };
 
   const saveMember = async (id) => {
@@ -314,13 +349,12 @@ function TeamSection({ toast }) {
     const initials = editName.trim().slice(0, 2);
     try {
       const res = await fetch(`/api/members/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName.trim(), color: editColor, initials, email: editEmail.trim() || null, phone: editPhone.trim() || null }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editName.trim(), color: editColor, initials, email: editEmail.trim() || null, phone: editPhone.trim() || null, team_type_ids: editTeamTypeIds }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
       const updated = await res.json();
-      setMembers((arr) => { const next = arr.map((m) => m.id === id ? { ...m, name: editName.trim(), color: editColor, initials, email: updated.email || null, phone: updated.phone || null } : m); syncGlobal(next); return next; });
+      setMembers(arr => { const next = arr.map(m => m.id === id ? { ...m, ...updated } : m); syncGlobal(next); return next; });
       setEditId(null);
       toast('แก้ไขข้อมูลสมาชิกแล้ว');
     } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
@@ -332,36 +366,308 @@ function TeamSection({ toast }) {
     setPwSaving(true);
     try {
       const res = await fetch(`/api/members/${id}/password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: pwValue }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
-      setPwId(null);
-      toast('ตั้งรหัสผ่านแล้ว');
+      setPwId(null); toast('ตั้งรหัสผ่านแล้ว');
     } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
     finally { setPwSaving(false); }
   };
 
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 14 }}>กำลังโหลดทีมงาน…</div>;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <SecHead title="จัดการทีมงาน" desc={`สมาชิกทั้งหมด ${members.length} คนที่รับมอบหมายงานได้`}
-        action={<FillBtn icon="userPlus" onClick={() => setAdding((a) => !a)}>เพิ่มสมาชิก</FillBtn>} />
+      <SecHead title="จัดการทีมงาน" desc={`สมาชิกทั้งหมด ${members.length} คน`}
+        action={<FillBtn icon="userPlus" onClick={() => setAdding(a => !a)}>เพิ่มสมาชิก</FillBtn>} />
 
       {adding && (
         <Card style={{ padding: 18, border: '1.5px solid #06C75566', animation: 'pop .14s ease-out' }}>
           <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <Txt label="ชื่อสมาชิก" value={nm} onChange={(e) => setNm(e.target.value)} placeholder="เช่น สมชาย ใจดี" width={200} />
+            <Txt label="ชื่อสมาชิก" value={nm} onChange={e => setNm(e.target.value)} placeholder="เช่น สมชาย ใจดี" width={200} />
             <div>
               <span style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 6 }}>บทบาท</span>
-              <Dropdown align="left" width={170} trigger={(open) => (
+              <Dropdown align="left" width={170} trigger={open => (
                 <button style={{ display: 'flex', alignItems: 'center', gap: 8, height: 42, padding: '0 13px', borderRadius: 11, border: '1.5px solid ' + (open ? '#06C755' : '#E2E8F0'), background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 600, color: '#334155', minWidth: 150 }}>
                   <span style={{ flex: 1, textAlign: 'left' }}>{role}</span><Icon name="chevronDown" size={14} style={{ color: '#94A3B8' }} />
                 </button>
               )}>
-                {(close) => ROLES.map((r) => <MenuItem key={r} active={role === r} onClick={() => { setRole(r); close(); }}>{r}</MenuItem>)}
+                {close => ROLES.map(r => <MenuItem key={r} active={role === r} onClick={() => { setRole(r); close(); }}>{r}</MenuItem>)}
               </Dropdown>
             </div>
+            <div>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 8 }}>สี</span>
+              <ColorPicker value={color} onChange={setColor} />
+            </div>
+          </div>
+          {D.TEAM_TYPES?.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', marginBottom: 8 }}>ประเภททีม (เลือกได้หลายทีม)</div>
+              <TeamTypeSelect selected={newTeamTypeIds} onChange={setNewTeamTypeIds} />
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <GhostBtn onClick={() => { setAdding(false); setNewTeamTypeIds([]); }} color="#64748B">ยกเลิก</GhostBtn>
+            <FillBtn icon="check" onClick={add}>{saving ? 'กำลังบันทึก…' : 'เพิ่ม'}</FillBtn>
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        {members.length === 0 && <div style={{ padding: '24px', textAlign: 'center', color: '#CBD5E1', fontSize: 13, fontWeight: 600 }}>ยังไม่มีสมาชิก</div>}
+        {members.map((m, i) => (
+          <div key={m.id} style={{ borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
+            {/* แถวข้อมูลสมาชิก */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px' }}>
+              <Avatar initials={m.initials} color={m.color} size={42} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {m.name}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                  <span style={{ fontSize: 12, color: m.line_user_id ? '#06C755' : '#CBD5E1', fontWeight: 500 }}>
+                    {m.line_user_id ? `Line: ${m.line_user_id.slice(0, 12)}…` : 'ยังไม่ได้ผูก Line ID'}
+                  </span>
+                  {(m.team_type_ids || []).map(tid => {
+                    const t = (D.TEAM_TYPES || []).find(x => x.id === tid);
+                    if (!t) return null;
+                    return <span key={tid} style={{ fontSize: 11, fontWeight: 700, color: t.color, background: t.color + '18', padding: '1px 7px', borderRadius: 5 }}>{t.team_name}</span>;
+                  })}
+                </div>
+              </div>
+              <Dropdown align="right" width={170} trigger={open => (
+                <button style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 9, border: '1.5px solid ' + (open ? '#06C755' : '#E2E8F0'), background: '#F8FAFC', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+                  {m.role || 'กำหนดบทบาท'}<Icon name="chevronDown" size={13} style={{ color: '#94A3B8' }} />
+                </button>
+              )}>
+                {close => ROLES.map(r => <MenuItem key={r} active={m.role === r} onClick={() => { setRoleOf(m.id, r); close(); }}>{r}</MenuItem>)}
+              </Dropdown>
+              <button onClick={() => openEdit(m)} title="แก้ไขข้อมูล" style={{ border: 'none', background: editId === m.id ? '#FFF7ED' : 'transparent', cursor: 'pointer', color: editId === m.id ? '#F59E0B' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={e => { if (editId !== m.id) { e.currentTarget.style.color = '#F59E0B'; e.currentTarget.style.background = '#FFF7ED'; } }}
+                onMouseLeave={e => { if (editId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
+                <Icon name="pencil" size={17} />
+              </button>
+              <button onClick={() => openPw(m)} title="ตั้งรหัสผ่าน" style={{ border: 'none', background: pwId === m.id ? '#F0FDF4' : 'transparent', cursor: 'pointer', color: pwId === m.id ? '#16A34A' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={e => { if (pwId !== m.id) { e.currentTarget.style.color = '#16A34A'; e.currentTarget.style.background = '#F0FDF4'; } }}
+                onMouseLeave={e => { if (pwId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
+                <Icon name="lock" size={17} />
+              </button>
+              <button onClick={() => openLineId(m)} title="ผูก Line ID" style={{ border: 'none', background: expandedId === m.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', color: expandedId === m.id ? '#3B82F6' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={e => { if (expandedId !== m.id) { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; } }}
+                onMouseLeave={e => { if (expandedId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
+                <Icon name="link" size={17} />
+              </button>
+              <button onClick={() => remove(m.id)} title="นำออก" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
+                <Icon name="trash" size={17} />
+              </button>
+            </div>
+
+            {/* Edit info panel */}
+            {editId === m.id && (
+              <div style={{ padding: '12px 18px 16px', background: '#FFFBEB', borderTop: '1px solid #FEF3C7', animation: 'pop .12s ease-out' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>ชื่อสมาชิก</div>
+                    <input autoFocus value={editName} onChange={e => setEditName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveMember(m.id); if (e.key === 'Escape') setEditId(null); }}
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 180, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>อีเมล</div>
+                    <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="email@example.com"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 190, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>เบอร์โทรศัพท์</div>
+                    <input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="0812345678"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 150, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>สี</div>
+                    <ColorPicker value={editColor} onChange={setEditColor} />
+                  </div>
+                </div>
+                {D.TEAM_TYPES?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>ประเภททีม</div>
+                    <TeamTypeSelect selected={editTeamTypeIds} onChange={setEditTeamTypeIds} />
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                  <button onClick={() => saveMember(m.id)} style={{ height: 40, padding: '0 16px', border: 'none', background: '#F59E0B', color: '#fff', cursor: 'pointer', borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>บันทึก</button>
+                  <button onClick={() => setEditId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+                </div>
+              </div>
+            )}
+
+            {/* Line ID panel */}
+            {expandedId === m.id && (
+              <div style={{ padding: '12px 18px 16px', display: 'flex', gap: 10, alignItems: 'flex-end', background: '#F8FAFC', borderTop: '1px solid #F1F5F9', animation: 'pop .12s ease-out' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>
+                    Line User ID <span style={{ color: '#94A3B8', fontWeight: 400 }}>(พิมพ์ "myid" ในกลุ่ม Line เพื่อรับ ID)</span>
+                  </div>
+                  <input value={lineIdDraft} onChange={e => setLineIdDraft(e.target.value)}
+                    placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    style={{ width: '100%', height: 40, padding: '0 13px', borderRadius: 10, fontFamily: 'monospace', fontSize: 13, color: '#1E293B', border: '1.5px solid #06C755', outline: 'none', background: '#fff', boxSizing: 'border-box' }} />
+                </div>
+                <FillBtn icon="check" onClick={() => saveLineId(m.id)}>บันทึก</FillBtn>
+                <button onClick={() => setExpandedId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+              </div>
+            )}
+
+            {/* Password panel */}
+            {pwId === m.id && (
+              <div style={{ padding: '12px 18px 16px', background: '#F0FDF4', borderTop: '1px solid #BBF7D0', animation: 'pop .12s ease-out' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#15803D', marginBottom: 6 }}>รหัสผ่านใหม่</div>
+                    <input type="password" autoFocus value={pwValue} onChange={e => setPwValue(e.target.value)} placeholder="อย่างน้อย 6 ตัวอักษร"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #22C55E', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 200, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#15803D', marginBottom: 6 }}>ยืนยันรหัสผ่าน</div>
+                    <input type="password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)} placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid ' + (pwConfirm && pwValue !== pwConfirm ? '#EF4444' : '#22C55E'), outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 200, boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}></div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => savePassword(m.id)} disabled={pwSaving} style={{ height: 40, padding: '0 16px', border: 'none', background: '#16A34A', color: '#fff', cursor: pwSaving ? 'default' : 'pointer', borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', opacity: pwSaving ? 0.7 : 1 }}>{pwSaving ? 'กำลังบันทึก…' : 'ตั้งรหัสผ่าน'}</button>
+                    <button onClick={() => setPwId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+/* ====================================================================== */
+/* SECTION: Team Types (Admin only)                                       */
+/* ====================================================================== */
+function TeamTypesSection({ toast }) {
+  const [types, setTypes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [nm, setNm] = useState('');
+  const [desc, setDesc] = useState('');
+  const [color, setColor] = useState('#3B82F6');
+  const [editId, setEditId] = useState(null);
+  const [editNm, setEditNm] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+
+  const syncGlobal = (arr) => { D.TEAM_TYPES = arr; };
+
+  const fetchTypes = async () => {
+    try {
+      const res = await fetch('/api/team-types');
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setTypes(data); syncGlobal(data);
+    } catch { setTypes([]); }
+  };
+
+  useEffect(() => {
+    fetchTypes().then(() => setLoading(false));
+    if (window.supabaseClient) {
+      const ch = window.supabaseClient
+        .channel('team-types-rt')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'team_types' }, fetchTypes)
+        .subscribe();
+      return () => ch.unsubscribe();
+    }
+  }, []);
+
+  const add = async () => {
+    if (!nm.trim() || saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/team-types', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_name: nm.trim(), description: desc.trim() || null, color }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const saved = await res.json();
+      const next = [...types, saved]; setTypes(next); syncGlobal(next);
+      setNm(''); setDesc(''); setAdding(false);
+      toast('เพิ่มประเภททีมแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+    finally { setSaving(false); }
+  };
+
+  const saveEdit = async (id) => {
+    if (!editNm.trim()) return;
+    try {
+      const res = await fetch(`/api/team-types/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_name: editNm.trim(), description: editDesc.trim() || null }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const updated = await res.json();
+      const next = types.map(t => t.id === id ? updated : t); setTypes(next); syncGlobal(next);
+      setEditId(null); toast('แก้ไขประเภททีมแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const recolor = async (id, newColor) => {
+    try {
+      const res = await fetch(`/api/team-types/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color: newColor }),
+      });
+      if (!res.ok) return;
+      const updated = await res.json();
+      const next = types.map(t => t.id === id ? updated : t); setTypes(next); syncGlobal(next);
+    } catch {}
+  };
+
+  const toggleActive = async (id, is_active) => {
+    try {
+      const res = await fetch(`/api/team-types/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const updated = await res.json();
+      const next = types.map(t => t.id === id ? updated : t); setTypes(next); syncGlobal(next);
+      toast(is_active ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว');
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  const remove = async (id) => {
+    try {
+      const res = await fetch(`/api/team-types/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.statusText); }
+      const data = await res.json();
+      if (data.deactivated) {
+        const next = types.map(t => t.id === id ? data : t); setTypes(next); syncGlobal(next);
+        toast('มีการใช้งานอยู่ — เปลี่ยนเป็นไม่ใช้งานแทน');
+      } else {
+        const next = types.filter(t => t.id !== id); setTypes(next); syncGlobal(next);
+        toast('ลบประเภททีมแล้ว');
+      }
+    } catch (err) { toast('เกิดข้อผิดพลาด: ' + err.message); }
+  };
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#94A3B8', fontSize: 14 }}>กำลังโหลด…</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <SecHead title="ประเภททีม" desc="กำหนดกลุ่มทีมงานสำหรับจัดหมวดหมู่ Ticket"
+        action={<FillBtn icon="plus" onClick={() => setAdding(a => !a)}>เพิ่มประเภท</FillBtn>} />
+
+      {adding && (
+        <Card style={{ padding: 18, border: '1.5px solid #06C75566', animation: 'pop .14s ease-out' }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <Txt label="ชื่อประเภททีม" value={nm} onChange={e => setNm(e.target.value)} placeholder="เช่น ทีม IT" width={200} />
+            <Txt label="คำอธิบาย (ไม่บังคับ)" value={desc} onChange={e => setDesc(e.target.value)} placeholder="รายละเอียดสั้นๆ" width={240} />
             <div>
               <span style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 8 }}>สี</span>
               <ColorPicker value={color} onChange={setColor} />
@@ -376,130 +682,54 @@ function TeamSection({ toast }) {
       )}
 
       <Card>
-        {members.map((m, i) => (
-          <div key={m.id} style={{ borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
-            {/* row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px' }}>
-              <Avatar initials={m.initials} color={m.color} size={42} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {m.name}{m.id === 'm0' && <span style={{ fontSize: 11, fontWeight: 700, color: '#06C755', background: '#06C75514', padding: '2px 8px', borderRadius: 6, marginLeft: 8 }}>คุณ</span>}
+        {types.length === 0 && <div style={{ padding: '24px', textAlign: 'center', color: '#CBD5E1', fontSize: 13, fontWeight: 600 }}>ยังไม่มีประเภททีม</div>}
+        {types.map((t, i) => (
+          <div key={t.id} style={{ borderTop: i ? '1px solid #F1F5F9' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', opacity: t.is_active ? 1 : 0.5 }}>
+              {editId === t.id ? (
+                <div style={{ flex: 1, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input autoFocus value={editNm} onChange={e => setEditNm(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveEdit(t.id); if (e.key === 'Escape') setEditId(null); }}
+                    style={{ height: 34, padding: '0 12px', borderRadius: 8, border: '1.5px solid #06C755', outline: 'none', fontSize: 13, fontFamily: 'inherit', color: '#334155', minWidth: 140 }} />
+                  <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="คำอธิบาย"
+                    style={{ height: 34, padding: '0 12px', borderRadius: 8, border: '1.5px solid #E2E8F0', outline: 'none', fontSize: 13, fontFamily: 'inherit', color: '#334155', minWidth: 200 }} />
                 </div>
-                <div style={{ fontSize: 12, color: m.line_user_id ? '#06C755' : '#CBD5E1', fontWeight: 500, marginTop: 2 }}>
-                  {m.line_user_id ? `Line: ${m.line_user_id.slice(0, 12)}…` : 'ยังไม่ได้ผูก Line ID'}
+              ) : (
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 4, background: t.color, flexShrink: 0 }}></span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{t.team_name}</span>
+                    {!t.is_active && <span style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', background: '#F1F5F9', padding: '2px 8px', borderRadius: 6 }}>ไม่ใช้งาน</span>}
+                  </div>
+                  {t.description && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{t.description}</div>}
                 </div>
-              </div>
-              <Dropdown align="right" width={170} trigger={(open) => (
-                <button style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 9, border: '1.5px solid ' + (open ? '#06C755' : '#E2E8F0'), background: '#F8FAFC', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#475569' }}>
-                  {m.role}<Icon name="chevronDown" size={13} style={{ color: '#94A3B8' }} />
-                </button>
-              )}>
-                {(close) => ROLES.map((r) => <MenuItem key={r} active={m.role === r} onClick={() => { setRoleOf(m.id, r); close(); }}>{r}</MenuItem>)}
-              </Dropdown>
-              {/* ปุ่มแก้ไขชื่อ/สี */}
-              <button onClick={() => openEdit(m)} title="แก้ไขข้อมูล" style={{ border: 'none', background: editId === m.id ? '#FFF7ED' : 'transparent', cursor: 'pointer', color: editId === m.id ? '#F59E0B' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
-                onMouseEnter={(e) => { if (editId !== m.id) { e.currentTarget.style.color = '#F59E0B'; e.currentTarget.style.background = '#FFF7ED'; } }}
-                onMouseLeave={(e) => { if (editId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
-                <Icon name="pencil" size={17} />
-              </button>
-              {/* ปุ่มตั้งรหัสผ่าน */}
-              <button onClick={() => openPw(m)} title="ตั้งรหัสผ่าน" style={{ border: 'none', background: pwId === m.id ? '#F0FDF4' : 'transparent', cursor: 'pointer', color: pwId === m.id ? '#16A34A' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
-                onMouseEnter={(e) => { if (pwId !== m.id) { e.currentTarget.style.color = '#16A34A'; e.currentTarget.style.background = '#F0FDF4'; } }}
-                onMouseLeave={(e) => { if (pwId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
-                <Icon name="lock" size={17} />
-              </button>
-              {/* ปุ่มผูก Line ID */}
-              <button onClick={() => openLineId(m)} title="ผูก Line ID" style={{ border: 'none', background: expandedId === m.id ? '#EFF6FF' : 'transparent', cursor: 'pointer', color: expandedId === m.id ? '#3B82F6' : '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
-                onMouseEnter={(e) => { if (expandedId !== m.id) { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; } }}
-                onMouseLeave={(e) => { if (expandedId !== m.id) { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; } }}>
-                <Icon name="link" size={17} />
-              </button>
-              {m.id !== 'm0' && (
-                <button onClick={() => remove(m.id)} title="นำออก" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
-                  <Icon name="trash" size={17} />
+              )}
+              <ColorPicker value={t.color} onChange={col => recolor(t.id, col)} />
+              <Toggle on={t.is_active} onChange={v => toggleActive(t.id, v)} />
+              {editId === t.id ? (
+                <>
+                  <button onClick={() => saveEdit(t.id)} style={{ border: 'none', background: '#06C755', color: '#fff', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>บันทึก</button>
+                  <button onClick={() => setEditId(null)} style={{ border: '1.5px solid #E2E8F0', background: '#fff', color: '#64748B', cursor: 'pointer', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>ยกเลิก</button>
+                </>
+              ) : (
+                <button onClick={() => { setEditId(t.id); setEditNm(t.team_name); setEditDesc(t.description || ''); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94A3B8', padding: 7, borderRadius: 8, display: 'flex' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#3B82F6'; e.currentTarget.style.background = '#EFF6FF'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; }}>
+                  <Icon name="pencil" size={17} />
                 </button>
               )}
+              <button onClick={() => remove(t.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#CBD5E1', padding: 7, borderRadius: 8, display: 'flex' }}
+                onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = '#FEF2F2'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = '#CBD5E1'; e.currentTarget.style.background = 'transparent'; }}>
+                <Icon name="trash" size={17} />
+              </button>
             </div>
-
-            {/* Edit info panel */}
-            {editId === m.id && (
-              <div style={{ padding: '12px 18px 16px', background: '#FFFBEB', borderTop: '1px solid #FEF3C7', animation: 'pop .12s ease-out' }}>
-                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>ชื่อสมาชิก</div>
-                    <input autoFocus value={editName} onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') saveMember(m.id); if (e.key === 'Escape') setEditId(null); }}
-                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 180, boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>อีเมล</div>
-                    <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)}
-                      placeholder="email@example.com"
-                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 190, boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>เบอร์โทรศัพท์</div>
-                    <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)}
-                      placeholder="0812345678"
-                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #F59E0B', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 150, boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>สี</div>
-                    <ColorPicker value={editColor} onChange={setEditColor} />
-                  </div>
-                  <div style={{ flex: 1 }}></div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => saveMember(m.id)} style={{ height: 40, padding: '0 16px', border: 'none', background: '#F59E0B', color: '#fff', cursor: 'pointer', borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>บันทึก</button>
-                    <button onClick={() => setEditId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Line ID panel */}
-            {expandedId === m.id && (
-              <div style={{ padding: '0 18px 16px', display: 'flex', gap: 10, alignItems: 'flex-end', background: '#F8FAFC', borderTop: '1px solid #F1F5F9', animation: 'pop .12s ease-out' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>Line User ID <span style={{ color: '#94A3B8', fontWeight: 400 }}>(ให้ทีมงานพิมพ์ "myid" ในกลุ่ม Line เพื่อรับ ID)</span></div>
-                  <input value={lineIdDraft} onChange={(e) => setLineIdDraft(e.target.value)}
-                    placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                    style={{ width: '100%', height: 40, padding: '0 13px', borderRadius: 10, fontFamily: 'monospace', fontSize: 13, color: '#1E293B', border: '1.5px solid #06C755', outline: 'none', background: '#fff', boxSizing: 'border-box' }}
-                  />
-                </div>
-                <FillBtn icon="check" onClick={() => saveLineId(m.id)}>บันทึก</FillBtn>
-                <button onClick={() => setExpandedId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
-              </div>
-            )}
-
-            {/* Password panel */}
-            {pwId === m.id && (
-              <div style={{ padding: '12px 18px 16px', background: '#F0FDF4', borderTop: '1px solid #BBF7D0', animation: 'pop .12s ease-out' }}>
-                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#15803D', marginBottom: 6 }}>รหัสผ่านใหม่</div>
-                    <input type="password" autoFocus value={pwValue} onChange={(e) => setPwValue(e.target.value)}
-                      placeholder="อย่างน้อย 6 ตัวอักษร"
-                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid #22C55E', outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 200, boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#15803D', marginBottom: 6 }}>ยืนยันรหัสผ่าน</div>
-                    <input type="password" value={pwConfirm} onChange={(e) => setPwConfirm(e.target.value)}
-                      placeholder="พิมพ์รหัสผ่านอีกครั้ง"
-                      style={{ height: 40, padding: '0 13px', borderRadius: 10, border: '1.5px solid ' + (pwConfirm && pwValue !== pwConfirm ? '#EF4444' : '#22C55E'), outline: 'none', fontSize: 14, fontFamily: 'inherit', color: '#1E293B', background: '#fff', minWidth: 200, boxSizing: 'border-box' }} />
-                  </div>
-                  <div style={{ flex: 1 }}></div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => savePassword(m.id)} disabled={pwSaving} style={{ height: 40, padding: '0 16px', border: 'none', background: '#16A34A', color: '#fff', cursor: pwSaving ? 'default' : 'pointer', borderRadius: 10, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', opacity: pwSaving ? 0.7 : 1 }}>{pwSaving ? 'กำลังบันทึก…' : 'ตั้งรหัสผ่าน'}</button>
-                    <button onClick={() => setPwId(null)} style={{ height: 40, padding: '0 14px', border: '1.5px solid #E2E8F0', borderRadius: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#64748B' }}>ยกเลิก</button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         ))}
       </Card>
+      <p style={{ margin: 0, fontSize: 12, color: '#94A3B8', padding: '0 4px' }}>
+        หมายเหตุ: ประเภทที่มี Ticket หรือสมาชิกใช้งานอยู่จะถูกปิดการใช้งานแทนการลบ
+      </p>
     </div>
   );
 }
@@ -848,30 +1078,15 @@ function ConnectionSection({ toast }) {
   }));
 
   const [arEnabled, setArEnabled] = useState(true);
-  const [arMode, setArMode] = useState('flex');
   const [arTemplate, setArTemplate] = useState('✅ รับเรื่องแล้วครับ คุณ{{name}}\n📋 "{{title}}"\nทีมงานจะติดต่อกลับเร็ว ๆ นี้');
-  const [arFlexJson, setArFlexJson] = useState('');
-  const [arFlexError, setArFlexError] = useState('');
   const [arSaving, setArSaving] = useState(false);
 
   useEffect(() => {
     fetch('/api/app-settings').then(r => r.json()).then(s => {
       setArEnabled(s.autoReplyEnabled !== false);
-      setArMode(s.autoReplyMode || 'flex');
       setArTemplate(s.autoReplyTemplate || '');
-      setArFlexJson(s.autoReplyFlexJson || '');
     }).catch(() => {});
   }, []);
-
-  const validateFlex = (json) => {
-    if (!json.trim()) { setArFlexError(''); return; }
-    try {
-      const p = JSON.parse(json);
-      if (p.type !== 'bubble' && p.type !== 'carousel') {
-        setArFlexError('ต้องเป็น bubble หรือ carousel — วาง contents เท่านั้น ไม่ต้องใส่ {"type":"flex",...} ด้านนอก');
-      } else { setArFlexError(''); }
-    } catch (e) { setArFlexError('JSON ไม่ถูกต้อง: ' + e.message.slice(0, 80)); }
-  };
 
   const saveAutoReply = async () => {
     setArSaving(true);
@@ -879,7 +1094,7 @@ function ConnectionSection({ toast }) {
       await fetch('/api/app-settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoReplyEnabled: arEnabled, autoReplyMode: arMode, autoReplyTemplate: arTemplate, autoReplyFlexJson: arFlexJson }),
+        body: JSON.stringify({ autoReplyEnabled: arEnabled, autoReplyTemplate: arTemplate }),
       });
       toast('บันทึกข้อความตอบรับแล้ว');
     } catch { toast('เกิดข้อผิดพลาด'); }
@@ -923,100 +1138,34 @@ function ConnectionSection({ toast }) {
           </div>
           <Toggle on={arEnabled} onChange={setArEnabled} />
         </div>
-        <div style={{ opacity: arEnabled ? 1 : 0.45, pointerEvents: arEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-          {/* mode tabs */}
-          <div style={{ display: 'flex', gap: 4, background: '#F1F5F9', borderRadius: 10, padding: 4 }}>
-            {[{ v: 'flex', label: '✨ Flex Message' }, { v: 'text', label: '💬 ข้อความธรรมดา' }].map(({ v, label }) => (
-              <button key={v} onClick={() => setArMode(v)} style={{
-                flex: 1, padding: '7px 0', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 13, fontWeight: 700, transition: 'all .15s',
-                background: arMode === v ? '#fff' : 'transparent',
-                color: arMode === v ? '#06C755' : '#94A3B8',
-                boxShadow: arMode === v ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
-              }}>{label}</button>
-            ))}
+        <div style={{ opacity: arEnabled ? 1 : 0.45, pointerEvents: arEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B', marginBottom: 6 }}>
+              เทมเพลตข้อความ
+              <span style={{ marginLeft: 10, fontSize: 11.5, color: '#94A3B8', fontWeight: 500 }}>
+                ใช้ <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{name}}'}</code> = ชื่อผู้แจ้ง &nbsp;
+                <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{title}}'}</code> = หัวข้อปัญหา
+              </span>
+            </div>
+            <textarea
+              value={arTemplate}
+              onChange={(e) => setArTemplate(e.target.value)}
+              rows={4}
+              style={{
+                width: '100%', padding: '11px 13px', borderRadius: 12, border: '1.5px solid #E2E8F0',
+                fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', lineHeight: 1.6,
+                resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#fff',
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#06C755'}
+              onBlur={(e) => e.target.style.borderColor = '#E2E8F0'}
+            />
           </div>
-
-          {/* flex mode */}
-          {arMode === 'flex' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.6 }}>
-                ออกแบบใน{' '}
-                <a href="https://developers.line.biz/flex-simulator/" target="_blank" rel="noreferrer"
-                   style={{ color: '#06C755', fontWeight: 600 }}>LINE Flex Message Simulator</a>
-                {' '}แล้ววาง JSON ของ <b>bubble</b> หรือ <b>carousel</b> ด้านล่าง
-              </div>
-              <div style={{ fontSize: 12, color: '#94A3B8' }}>
-                ใช้{' '}
-                <code style={{ background: '#F1F5F9', padding: '1px 6px', borderRadius: 4, color: '#06C755', fontSize: 12 }}>{'{{name}}'}</code>
-                {' '}และ{' '}
-                <code style={{ background: '#F1F5F9', padding: '1px 6px', borderRadius: 4, color: '#06C755', fontSize: 12 }}>{'{{title}}'}</code>
-                {' '}ใน text fields ของ Flex เพื่อแทรกชื่อ/หัวข้อ
-              </div>
-              <textarea
-                value={arFlexJson}
-                onChange={(e) => { setArFlexJson(e.target.value); validateFlex(e.target.value); }}
-                rows={12}
-                placeholder={'{\n  "type": "bubble",\n  "body": {\n    "type": "box",\n    "layout": "vertical",\n    "contents": [\n      { "type": "text", "text": "รับเรื่องแล้วครับ {{name}}" }\n    ]\n  }\n}'}
-                style={{
-                  width: '100%', padding: '11px 13px', borderRadius: 12,
-                  border: `1.5px solid ${arFlexError ? '#EF4444' : arFlexJson && !arFlexError ? '#06C755' : '#E2E8F0'}`,
-                  fontFamily: 'monospace', fontSize: 12.5, color: '#1E293B', lineHeight: 1.6,
-                  resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#FAFAFA',
-                }}
-              />
-              {arFlexError && (
-                <div style={{ fontSize: 12, color: '#EF4444', background: '#FEF2F2', padding: '8px 12px', borderRadius: 8 }}>
-                  ⚠ {arFlexError}
-                </div>
-              )}
-              {arFlexJson && !arFlexError && (
-                <div style={{ fontSize: 12, color: '#06C755', background: '#F0FDF4', padding: '8px 12px', borderRadius: 8 }}>
-                  ✓ JSON ถูกต้อง — พร้อมใช้งาน
-                </div>
-              )}
-              {!arFlexJson.trim() && (
-                <div style={{ fontSize: 12, color: '#64748B', background: '#F8FAFC', padding: '10px 12px', borderRadius: 8, border: '1px dashed #E2E8F0' }}>
-                  💡 หากว่างไว้ จะใช้ Flex template มาตรฐานของระบบ (สวยงามอยู่แล้ว)
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* text mode */}
-          {arMode === 'text' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#64748B' }}>
-                เทมเพลตข้อความ
-                <span style={{ marginLeft: 10, fontSize: 11.5, color: '#94A3B8', fontWeight: 500 }}>
-                  ใช้ <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{name}}'}</code> และ{' '}
-                  <code style={{ background: '#F1F5F9', padding: '1px 5px', borderRadius: 4, color: '#06C755' }}>{'{{title}}'}</code>
-                </span>
-              </div>
-              <textarea
-                value={arTemplate}
-                onChange={(e) => setArTemplate(e.target.value)}
-                rows={4}
-                style={{
-                  width: '100%', padding: '11px 13px', borderRadius: 12, border: '1.5px solid #E2E8F0',
-                  fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', lineHeight: 1.6,
-                  resize: 'vertical', outline: 'none', boxSizing: 'border-box', background: '#fff',
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#06C755'}
-                onBlur={(e) => e.target.style.borderColor = '#E2E8F0'}
-              />
-              <div style={{ background: '#F8FAFC', borderRadius: 12, padding: '12px 14px', border: '1px solid #E2E8F0' }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8', marginBottom: 6, letterSpacing: '.03em', textTransform: 'uppercase' }}>ตัวอย่าง</div>
-                <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{arPreview}</div>
-              </div>
-            </div>
-          )}
-
+          <div style={{ background: '#F8FAFC', borderRadius: 12, padding: '12px 14px', border: '1px solid #E2E8F0' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8', marginBottom: 6, letterSpacing: '.03em', textTransform: 'uppercase' }}>ตัวอย่างข้อความ</div>
+            <div style={{ fontSize: 13.5, color: '#334155', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{arPreview}</div>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <FillBtn icon="save" onClick={saveAutoReply} disabled={arMode === 'flex' && !!arFlexError}>
-              {arSaving ? 'กำลังบันทึก…' : 'บันทึก'}
-            </FillBtn>
+            <FillBtn icon="save" onClick={saveAutoReply}>{arSaving ? 'กำลังบันทึก…' : 'บันทึก'}</FillBtn>
           </div>
         </div>
       </Card>
@@ -1047,12 +1196,13 @@ function ConnectionSection({ toast }) {
 /* Settings shell                                                         */
 /* ====================================================================== */
 const SETTINGS_NAV = [
-  { id: 'profile', label: 'โปรไฟล์', icon: 'user' },
-  { id: 'team', label: 'ทีมงาน', icon: 'groups' },
-  { id: 'categories', label: 'หมวดหมู่', icon: 'tag' },
-  { id: 'replies', label: 'ข้อความด่วน', icon: 'message' },
-  { id: 'notify', label: 'แจ้งเตือน & SLA', icon: 'sliders' },
-  { id: 'connection', label: 'เชื่อมต่อ LINE', icon: 'link' },
+  { id: 'profile',     label: 'โปรไฟล์',       icon: 'user' },
+  { id: 'team',        label: 'ทีมงาน',         icon: 'groups' },
+  { id: 'team_types',  label: 'ประเภททีม',      icon: 'tag' },
+  { id: 'categories',  label: 'หมวดหมู่',        icon: 'tag' },
+  { id: 'replies',     label: 'ข้อความด่วน',    icon: 'message' },
+  { id: 'notify',      label: 'แจ้งเตือน & SLA', icon: 'sliders' },
+  { id: 'connection',  label: 'เชื่อมต่อ LINE',  icon: 'link' },
 ];
 
 function Settings({ isMobile, toast, currentUser }) {
@@ -1071,11 +1221,12 @@ function Settings({ isMobile, toast, currentUser }) {
   }
 
   const content = {
-    profile: <ProfileSection toast={toast} currentUser={currentUser} />,
-    team: <TeamSection toast={toast} />,
+    profile:    <ProfileSection toast={toast} currentUser={currentUser} />,
+    team:       <TeamSection toast={toast} />,
+    team_types: <TeamTypesSection toast={toast} />,
     categories: <CategoriesSection toast={toast} />,
-    replies: <RepliesSection toast={toast} />,
-    notify: <NotifySection toast={toast} />,
+    replies:    <RepliesSection toast={toast} />,
+    notify:     <NotifySection toast={toast} />,
     connection: <ConnectionSection toast={toast} />,
   }[sec];
 

@@ -27,10 +27,11 @@ function normalizeIssue(row) {
     tags:       row.tags      || [],
     status:     row.status,
     priority:   row.priority,
-    assigneeId: row.assignee_id || null,
-    unread:     row.unread,
-    createdAt:  row.created_at,
-    closedAt:   row.closed_at || null,
+    assigneeId:  row.assignee_id  || null,
+    teamTypeId:  row.team_type_id || null,
+    unread:      row.unread,
+    createdAt:   row.created_at,
+    closedAt:    row.closed_at || null,
     thread: messages.map((m) => ({
       from:       m.from_type,
       who:        m.who,
@@ -145,10 +146,11 @@ const FILTERS = [
   { id: 'open', label: 'ยังไม่ปิด', test: (i) => i.status !== 'resolved' },
 ];
 
-function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search, flash }) {
+function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search, flash, currentUser, showAllTeams, onToggleShowAll }) {
   const [filter, setFilter] = useState('all');
   const [groupId, setGroupId] = useState('all');
   const [showResolved, setShowResolved] = useState(false);
+  const isAdmin = currentUser?.role === 'แอดมิน';
 
   const { list, resolvedCount } = useMemo(() => {
     let l = issues.filter(FILTERS.find((f) => f.id === filter).test);
@@ -204,7 +206,7 @@ function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search,
             )}>
               {(close) => <>
                 <MenuItem active={groupId === 'all'} onClick={() => { setGroupId('all'); close(); }}>ทุกกลุ่ม Line</MenuItem>
-                {D.GROUPS.map((g) => (
+                {D.GROUPS.map(g => (
                   <MenuItem key={g.id} active={groupId === g.id} onClick={() => { setGroupId(g.id); close(); }}>
                     <Avatar initials={g.initials} color={g.color} size={20} />
                     <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</span>
@@ -212,6 +214,17 @@ function InboxView({ issues, selId, setSel, onUpdate, onReply, isMobile, search,
                 ))}
               </>}
             </Dropdown>
+            {/* show-all toggle (non-admin เท่านั้น) */}
+            {!isAdmin && onToggleShowAll && (
+              <button onClick={() => onToggleShowAll(!showAllTeams)} style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginTop: 8, borderRadius: 10, border: '1.5px solid',
+                borderColor: showAllTeams ? '#F59E0B' : '#E2E8F0', background: showAllTeams ? '#FFFBEB' : '#fff',
+                cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: showAllTeams ? '#D97706' : '#64748B',
+              }}>
+                <Icon name={showAllTeams ? 'eye' : 'eyeOff'} size={15} />
+                {showAllTeams ? 'ดูทุก Ticket (รวมทีมอื่น)' : 'ดูเฉพาะทีมของฉัน'}
+              </button>
+            )}
           </div>
           {/* list */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -382,13 +395,16 @@ function App() {
   const [selId, setSel]             = useState(null);
   const [search, setSearch]         = useState('');
   const [toast, setToast]           = useState(null);
+  const [showAllTeams, setShowAllTeams] = useState(false);
+  const showAllRef = useRef(false);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
   /* ---- โหลด issues (ใช้ใน realtime callback ด้วย) ---- */
   const fetchIssues = async () => {
     try {
-      const res = await fetch('/api/issues');
+      const url = showAllRef.current ? '/api/issues?show_all=true' : '/api/issues';
+      const res = await fetch(url);
       if (res.status === 401) { doLogout(); return; }
       const data = await res.json();
       setIssues(data.map(normalizeIssue));
@@ -399,12 +415,14 @@ function App() {
 
   /* ---- โหลดข้อมูลทั้งหมด ---- */
   const loadData = async () => {
+    const issuesUrl = showAllRef.current ? '/api/issues?show_all=true' : '/api/issues';
     const results = await Promise.allSettled([
-      fetch('/api/issues').then((r) => r.json()),
+      fetch(issuesUrl).then((r) => r.json()),
       fetch('/api/groups').then((r) => r.json()),
       fetch('/api/members').then((r) => r.json()),
       fetch('/api/categories').then((r) => r.json()),
       fetch('/api/quick-replies').then((r) => r.json()),
+      fetch('/api/team-types').then((r) => r.json()),
     ]);
     const val = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
     const issuesData     = val(0) || [];
@@ -412,10 +430,12 @@ function App() {
     const membersData    = val(2) || [];
     const categoriesData = val(3) || [];
     const repliesData    = val(4) || [];
+    const teamTypesData  = val(5) || [];
 
     D.GROUPS        = groupsData;
     D.MEMBERS       = membersData;
     D.QUICK_REPLIES = repliesData;
+    D.TEAM_TYPES    = teamTypesData;
     if (categoriesData.length > 0) {
       D.CATEGORIES = {};
       categoriesData.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
@@ -469,22 +489,30 @@ function App() {
   }, [authed]);
 
   /* ---- อัปเดต issue ---- */
+  const handleShowAllTeams = (val) => {
+    showAllRef.current = val;
+    setShowAllTeams(val);
+    fetchIssues();
+  };
+
   const update = async (id, patch) => {
     const body = {};
-    if (patch.status      !== undefined) body.status      = patch.status;
-    if (patch.assigneeId  !== undefined) body.assignee_id = patch.assigneeId;
-    if (patch.priority    !== undefined) body.priority    = patch.priority;
-    if (patch.category    !== undefined) body.category    = patch.category;
-    if (patch.tags        !== undefined) body.tags        = patch.tags;
+    if (patch.status      !== undefined) body.status       = patch.status;
+    if (patch.assigneeId  !== undefined) body.assignee_id  = patch.assigneeId;
+    if (patch.priority    !== undefined) body.priority     = patch.priority;
+    if (patch.category    !== undefined) body.category     = patch.category;
+    if (patch.tags        !== undefined) body.tags         = patch.tags;
+    if (patch.teamTypeId  !== undefined) body.team_type_id = patch.teamTypeId;
     try {
       const res = await fetch(`/api/issues/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (res.status === 401) { doLogout(); return; }
       await fetchIssues();
-      if (patch.status !== undefined) flash('อัปเดตสถานะแล้ว');
-      else if ('assigneeId' in patch)  flash('มอบหมายงานแล้ว');
-      else if ('category'   in patch)  flash('เปลี่ยนหมวดหมู่แล้ว');
+      if (patch.status !== undefined)      flash('อัปเดตสถานะแล้ว');
+      else if ('assigneeId' in patch)      flash('มอบหมายงานแล้ว');
+      else if ('category'   in patch)      flash('เปลี่ยนหมวดหมู่แล้ว');
+      else if ('teamTypeId' in patch)      flash('เปลี่ยนประเภททีมแล้ว');
     } catch (err) { console.error('[App] update:', err); }
   };
 
@@ -557,7 +585,7 @@ function App() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, paddingBottom: isMobile ? 64 : 0 }}>
         <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} currentUser={currentUser} />
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} flash={flash} />}
+          {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} flash={flash} currentUser={currentUser} showAllTeams={showAllTeams} onToggleShowAll={handleShowAllTeams} />}
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}
           {view === 'list'      && <IssueListView issues={issues} onOpen={openFromBoard} isMobile={isMobile} search={search} />}
           {view === 'dashboard' && <Dashboard issues={issues} isMobile={isMobile} />}

@@ -23,12 +23,14 @@
     low:    { label: 'ต่ำ',     color: '#94A3B8', rank: 0 },
   };
 
-  // GROUPS และ MEMBERS จะถูกโหลดจาก API ตอน boot ใน app.jsx
+  // GROUPS, MEMBERS และ TEAM_TYPES จะถูกโหลดจาก API ตอน boot ใน app.jsx
   window.LINE_DATA = {
     CATEGORIES,
     STATUSES,
     PRIORITIES,
-    GROUPS:  [], // โหลดจาก /api/groups
-    MEMBERS: [], // โหลดจาก /api/members
+    GROUPS:      [], // โหลดจาก /api/groups
+    MEMBERS:     [], // โหลดจาก /api/members
+    TEAM_TYPES:  [], // โหลดจาก /api/team-types
+    QUICK_REPLIES: [],
   };
 })();
