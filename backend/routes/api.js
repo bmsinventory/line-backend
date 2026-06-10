@@ -36,6 +36,39 @@ router.get('/config', (_req, res) => {
 });
 
 // =====================================================
+// BOOTSTRAP — ดึง reference data ทั้งหมดในครั้งเดียว
+// =====================================================
+const _refCache = { data: null, at: 0 };
+const REF_TTL = 60_000; // 60 วินาที
+function invalidateRefCache() { _refCache.at = 0; }
+
+router.get('/bootstrap', async (_req, res) => {
+  const now = Date.now();
+  if (_refCache.data && now - _refCache.at < REF_TTL) {
+    return res.json(_refCache.data);
+  }
+  const [g, m, c, q, t] = await Promise.all([
+    supabase.from('groups').select('*').order('name'),
+    supabase.from('members').select('*, member_team_types(team_type_id)').order('name'),
+    supabase.from('categories').select('*').order('sort_order'),
+    supabase.from('quick_replies').select('*').order('sort_order'),
+    supabase.from('team_types').select('*').order('team_name'),
+  ]);
+  const members = (m.data || []).map(({ member_team_types, ...mem }) => ({
+    ...mem, team_type_ids: (member_team_types || []).map(x => x.team_type_id),
+  }));
+  _refCache.data = {
+    groups:       g.data || [],
+    members,
+    categories:   c.data || [],
+    quickReplies: q.data || [],
+    teamTypes:    t.data || [],
+  };
+  _refCache.at = now;
+  res.json(_refCache.data);
+});
+
+// =====================================================
 // SSE — realtime event stream
 // =====================================================
 router.get('/events', (req, res) => {
@@ -84,6 +117,7 @@ router.patch('/groups/:id', async (req, res) => {
   const { data, error } = await supabase
     .from('groups').update(patch).eq('id', id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json(data);
 });
 
@@ -122,6 +156,7 @@ router.post('/members', async (req, res) => {
   if (ids.length > 0) {
     await supabase.from('member_team_types').insert(ids.map(team_type_id => ({ member_id: id, team_type_id })));
   }
+  invalidateRefCache();
   res.json({ ...data, team_type_ids: ids });
 });
 
@@ -143,6 +178,7 @@ router.patch('/members/:id', async (req, res) => {
     }
   }
   const { data: tt } = await supabase.from('member_team_types').select('team_type_id').eq('member_id', id);
+  invalidateRefCache();
   res.json({ ...data, team_type_ids: (tt || []).map(t => t.team_type_id) });
 });
 
@@ -161,6 +197,7 @@ router.post('/members/:id/password', async (req, res) => {
 router.delete('/members/:id', async (req, res) => {
   const { error } = await supabase.from('members').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json({ ok: true });
 });
 
@@ -214,14 +251,15 @@ router.get('/issues', async (req, res) => {
     .select(`*, messages(*)`)
     .order('created_at', { ascending: false });
 
-  // Support role: กรองตามทีม (เว้นแต่ show_all=true)
+  // Support role: กรองเฉพาะ issue ของทีม (เว้นแต่ show_all=true)
   if (role !== 'แอดมิน' && req.query.show_all !== 'true') {
     const { data: memberTeams } = await supabase
       .from('member_team_types').select('team_type_id').eq('member_id', memberId);
     if (memberTeams && memberTeams.length > 0) {
-      const ids = memberTeams.map(t => t.team_type_id).join(',');
-      query = query.or(`team_type_id.in.(${ids}),team_type_id.is.null`);
+      // strict filter: เห็นเฉพาะ issue ที่ team_type_id ตรงกับทีมของตัวเอง
+      query = query.in('team_type_id', memberTeams.map(t => t.team_type_id));
     }
+    // ถ้าสมาชิกไม่มีทีม → ดูได้ทั้งหมด (fallback)
   }
 
   const { data, error } = await query;
@@ -435,6 +473,7 @@ router.post('/categories', async (req, res) => {
   const sort_order = (maxRow?.sort_order || 0) + 1;
   const { data, error } = await supabase.from('categories').insert({ id, label, color: color || '#64748B', sort_order }).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json(data);
 });
 
@@ -443,12 +482,14 @@ router.patch('/categories/:id', async (req, res) => {
   ['label', 'color'].forEach(k => { if (req.body[k] !== undefined) patch[k] = req.body[k]; });
   const { data, error } = await supabase.from('categories').update(patch).eq('id', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json(data);
 });
 
 router.delete('/categories/:id', async (req, res) => {
   const { error } = await supabase.from('categories').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json({ ok: true });
 });
 
@@ -468,6 +509,7 @@ router.post('/quick-replies', async (req, res) => {
   const sort_order = (maxRow?.sort_order || 0) + 1;
   const { data, error } = await supabase.from('quick_replies').insert({ text, sort_order }).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.status(201).json(data);
 });
 
@@ -476,12 +518,14 @@ router.patch('/quick-replies/:id', async (req, res) => {
   if (!text) return res.status(400).json({ error: 'text required' });
   const { data, error } = await supabase.from('quick_replies').update({ text }).eq('id', parseInt(req.params.id)).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json(data);
 });
 
 router.delete('/quick-replies/:id', async (req, res) => {
   const { error } = await supabase.from('quick_replies').delete().eq('id', parseInt(req.params.id));
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json({ ok: true });
 });
 
@@ -504,6 +548,7 @@ router.post('/team-types', async (req, res) => {
     is_active: true,
   }).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.status(201).json(data);
 });
 
@@ -516,6 +561,7 @@ router.patch('/team-types/:id', async (req, res) => {
   patch.updated_at = new Date().toISOString();
   const { data, error } = await supabase.from('team_types').update(patch).eq('id', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json(data);
 });
 
@@ -535,6 +581,7 @@ router.delete('/team-types/:id', async (req, res) => {
   }
   const { error } = await supabase.from('team_types').delete().eq('id', id);
   if (error) return res.status(500).json({ error: error.message });
+  invalidateRefCache();
   res.json({ ok: true });
 });
 

@@ -413,32 +413,23 @@ function App() {
     }
   };
 
-  /* ---- โหลดข้อมูลทั้งหมด ---- */
+  /* ---- โหลดข้อมูลทั้งหมด (bootstrap + issues พร้อมกัน) ---- */
   const loadData = async () => {
     const issuesUrl = showAllRef.current ? '/api/issues?show_all=true' : '/api/issues';
-    const results = await Promise.allSettled([
-      fetch(issuesUrl).then((r) => r.json()),
-      fetch('/api/groups').then((r) => r.json()),
-      fetch('/api/members').then((r) => r.json()),
-      fetch('/api/categories').then((r) => r.json()),
-      fetch('/api/quick-replies').then((r) => r.json()),
-      fetch('/api/team-types').then((r) => r.json()),
+    const [bootRes, issuesRes] = await Promise.allSettled([
+      fetch('/api/bootstrap').then(r => r.json()),
+      fetch(issuesUrl).then(r => r.json()),
     ]);
-    const val = (i) => results[i].status === 'fulfilled' ? results[i].value : null;
-    const issuesData     = val(0) || [];
-    const groupsData     = val(1) || [];
-    const membersData    = val(2) || [];
-    const categoriesData = val(3) || [];
-    const repliesData    = val(4) || [];
-    const teamTypesData  = val(5) || [];
+    const boot = bootRes.status === 'fulfilled' ? bootRes.value : {};
+    const issuesData = (issuesRes.status === 'fulfilled' && Array.isArray(issuesRes.value)) ? issuesRes.value : [];
 
-    D.GROUPS        = groupsData;
-    D.MEMBERS       = membersData;
-    D.QUICK_REPLIES = repliesData;
-    D.TEAM_TYPES    = teamTypesData;
-    if (categoriesData.length > 0) {
+    D.GROUPS        = boot.groups       || [];
+    D.MEMBERS       = boot.members      || [];
+    D.QUICK_REPLIES = boot.quickReplies || [];
+    D.TEAM_TYPES    = boot.teamTypes    || [];
+    if ((boot.categories || []).length > 0) {
       D.CATEGORIES = {};
-      categoriesData.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
+      boot.categories.forEach(c => { D.CATEGORIES[c.id] = { label: c.label, color: c.color }; });
     }
     setIssues(issuesData.map(normalizeIssue));
   };
@@ -446,24 +437,30 @@ function App() {
   /* ---- Boot sequence ---- */
   useEffect(() => {
     async function boot() {
-      // 1. Init Supabase client (ก่อน login เพื่อให้ realtime พร้อม)
+      // ดึง config + ตรวจ session พร้อมกัน (ประหยัด 1 RTT)
+      const [cfgResult, verifyResult] = await Promise.allSettled([
+        fetch('/api/config').then(r => r.json()),
+        fetch('/api/auth/verify'),
+      ]);
+
+      // Init Supabase client
       try {
-        const cfg = await fetch('/api/config').then((r) => r.json());
+        const cfg = cfgResult.status === 'fulfilled' ? cfgResult.value : null;
         if (cfg?.supabaseUrl && cfg?.supabaseAnonKey && window.supabase) {
           window.supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
         }
-      } catch { /* ถ้า init ไม่ได้ realtime ไม่ทำงาน — ไม่ block */ }
+      } catch {}
 
-      // 2. ตรวจว่า session ยังอยู่ไหม (HTTP-only cookie)
+      // ตรวจ session
       try {
-        const verifyRes = await fetch('/api/auth/verify');
-        if (verifyRes.ok) {
+        const verifyRes = verifyResult.status === 'fulfilled' ? verifyResult.value : null;
+        if (verifyRes?.ok) {
           const userData = await verifyRes.json();
           setCurrentUser({ memberId: userData.memberId, name: userData.name, role: userData.role });
           await loadData();
           setAuthed(true);
         }
-      } catch { /* ถ้าไม่ได้ แสดงหน้า login */ }
+      } catch {}
 
       setBooted(true);
     }
