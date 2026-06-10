@@ -400,12 +400,18 @@ router.post('/line', async (req, res) => {
           .map(m => m.userId);
 
         let hasMemberMention = false;
+        let issueTeamTypeId = null;
         if (mentionedUserIds.length > 0) {
           const { data: mentionedMembers } = await supabase
             .from('members')
-            .select('id')
+            .select('id, member_team_types(team_type_id)')
             .in('line_user_id', mentionedUserIds);
           hasMemberMention = (mentionedMembers || []).length > 0;
+          // ใช้ team_type แรกของสมาชิกที่ถูก @mention เป็น team_type_id ของ issue
+          for (const mem of (mentionedMembers || [])) {
+            const firstTT = (mem.member_team_types || [])[0];
+            if (firstTT?.team_type_id) { issueTeamTypeId = firstTT.team_type_id; break; }
+          }
         }
 
         const shouldCreate = hasMemberMention || !!triggerMatch;
@@ -446,6 +452,7 @@ router.post('/line', async (req, res) => {
           priority:          'normal',
           unread:            true,
           created_at:        timestamp,
+          team_type_id:      issueTeamTypeId,
         };
         const { error: issueErr } = await dbInsert('issues', issueData);
         if (issueErr) { console.error('[Webhook] insert issue failed:', JSON.stringify(issueErr)); continue; }
