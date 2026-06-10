@@ -1,9 +1,10 @@
 /* ===== App shell ===== */
 const NAV = [
-  { id: 'inbox', label: 'กล่องรวม', icon: 'inbox' },
-  { id: 'board', label: 'บอร์ดงาน', icon: 'board' },
+  { id: 'inbox',     label: 'กล่องรวม',  icon: 'inbox' },
+  { id: 'board',     label: 'บอร์ดงาน',  icon: 'board' },
+  { id: 'list',      label: 'รายการ',    icon: 'list'  },
   { id: 'dashboard', label: 'แดชบอร์ด', icon: 'chart' },
-  { id: 'groups', label: 'กลุ่ม Line', icon: 'groups' },
+  { id: 'groups',    label: 'กลุ่ม Line', icon: 'groups' },
 ];
 
 /* ---------- แปลงข้อมูลจาก DB เป็น format ที่ UI ใช้ ---------- */
@@ -305,10 +306,11 @@ function GroupsView({ issues, isMobile }) {
 
 /* ---------- top bar ---------- */
 function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, onAddIssue, currentUser }) {
-  const titles = { inbox: 'กล่องรวมปัญหา', board: 'บอร์ดงาน', dashboard: 'แดชบอร์ดภาพรวม', groups: 'กลุ่ม Line ที่เชื่อมต่อ', settings: 'ตั้งค่าระบบ' };
+  const titles = { inbox: 'กล่องรวมปัญหา', board: 'บอร์ดงาน', list: 'รายการปัญหาทั้งหมด', dashboard: 'แดชบอร์ดภาพรวม', groups: 'กลุ่ม Line ที่เชื่อมต่อ', settings: 'ตั้งค่าระบบ' };
   const subs = {
     inbox:     'ทุกข้อความแจ้งปัญหาจากทุกกลุ่ม รวมที่เดียว',
     board:     'ลากการ์ดเพื่อเปลี่ยนสถานะงาน',
+    list:      'ดูและกรองปัญหาทุกเรื่องแบบตาราง พร้อมเรียงลำดับได้',
     dashboard: 'อัปเดตล่าสุด ' + new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
     groups:    'จัดการกลุ่มและ OpenChat ที่เชื่อมต่อกับระบบ',
     settings:  'จัดการข้อมูล ทีมงาน และการเชื่อมต่อระบบ',
@@ -320,7 +322,7 @@ function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, o
         {!isMobile && <p style={{ margin: '1px 0 0', fontSize: 12.5, color: '#94A3B8', fontWeight: 500 }}>{subs[view]}</p>}
       </div>
       <div style={{ flex: 1 }}></div>
-      {!isMobile && (view === 'inbox' || view === 'board') && (
+      {!isMobile && (view === 'inbox' || view === 'board' || view === 'list') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: '#F1F5F9', borderRadius: 11, padding: '9px 13px', width: 260 }}>
           <Icon name="search" size={17} style={{ color: '#94A3B8' }} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาปัญหา, รหัส, ผู้แจ้ง…" style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', width: '100%' }} />
@@ -557,6 +559,7 @@ function App() {
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} flash={flash} />}
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}
+          {view === 'list'      && <IssueListView issues={issues} onOpen={openFromBoard} isMobile={isMobile} search={search} />}
           {view === 'dashboard' && <Dashboard issues={issues} isMobile={isMobile} />}
           {view === 'groups'    && <GroupsView issues={issues} isMobile={isMobile} />}
           {view === 'settings'  && <Settings isMobile={isMobile} toast={flash} currentUser={currentUser} />}

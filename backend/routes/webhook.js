@@ -374,19 +374,26 @@ router.post('/line', async (req, res) => {
         console.log(`[Webhook] เพิ่มข้อความใน issue ${existingIssue.id}`);
 
       } else {
-        // ไม่มี issue เปิด — ตรวจสอบโหมดการสร้าง issue
-        //
-        // โหมด 1 (แทร็กทีมงาน): ระบบมีการลงทะเบียน LINE User ID ของทีมงานไว้
-        //   → auto-create issue จากทุกข้อความของลูกค้า
-        // โหมด 2 (INV keyword): ผู้ใช้พิมพ์ "INV ..." หรือ "แจ้งปัญหา ..."
-        //   → สร้าง issue โดยใช้ข้อความหลัง keyword เป็นหัวข้อ
-        const { data: trackedMembers } = await supabase
-          .from('members').select('id').not('line_user_id', 'is', null).limit(1);
-        const hasTrackedTeam = (trackedMembers || []).length > 0;
+        // ไม่มี issue เปิด — สร้าง issue เฉพาะเมื่อ:
+        //   1. @mention ทีมงาน (LINE mention API)
+        //   2. ข้อความขึ้นต้นด้วย INV หรือ แจ้งปัญหา
+        // ตรวจว่ามีการ @mention ทีมงานใน LINE (event.message.mention.mentionees)
+        const mentionedUserIds = (event.message.mention?.mentionees || [])
+          .filter(m => m.type === 'user' && m.userId)
+          .map(m => m.userId);
 
-        const shouldCreate = hasTrackedTeam || !!triggerMatch;
+        let hasMemberMention = false;
+        if (mentionedUserIds.length > 0) {
+          const { data: mentionedMembers } = await supabase
+            .from('members')
+            .select('id')
+            .in('line_user_id', mentionedUserIds);
+          hasMemberMention = (mentionedMembers || []).length > 0;
+        }
+
+        const shouldCreate = hasMemberMention || !!triggerMatch;
         if (!shouldCreate) {
-          console.log(`[Webhook] ข้อความทั่วไป ละเว้น — ใช้ INV ตามด้วยปัญหาเพื่อแจ้ง`);
+          console.log(`[Webhook] ข้อความทั่วไป ละเว้น — ต้อง @mention ทีมงาน หรือขึ้นต้นด้วย INV/แจ้งปัญหา`);
         } else {
         // สร้าง issue ใหม่
         let title;

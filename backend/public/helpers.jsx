@@ -69,6 +69,8 @@ function Icon({ name, size = 20, className = '', strokeWidth = 1.75, style }) {
     userPlus: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" y1="8" x2="19" y2="14" /><line x1="22" y1="11" x2="16" y2="11" /></>,
     save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></>,
     arrowLeft: <><path d="M19 12H5M12 19l-7-7 7-7" /></>,
+    list: <><circle cx="4" cy="7" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="7" x2="21" y2="7"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="12" x2="21" y2="12"/><circle cx="4" cy="17" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="17" x2="21" y2="17"/></>,
+    table: <><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
