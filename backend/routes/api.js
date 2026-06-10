@@ -257,7 +257,8 @@ router.get('/issues', async (req, res) => {
       .from('member_team_types').select('team_type_id').eq('member_id', memberId);
     if (memberTeams && memberTeams.length > 0) {
       // strict filter: เห็นเฉพาะ issue ที่ team_type_id ตรงกับทีมของตัวเอง
-      query = query.in('team_type_id', memberTeams.map(t => t.team_type_id));
+      const orFilter = memberTeams.map(t => `team_type_id.eq.${t.team_type_id}`).join(',');
+      query = query.or(orFilter);
     }
     // ถ้าสมาชิกไม่มีทีม → ดูได้ทั้งหมด (fallback)
   }
