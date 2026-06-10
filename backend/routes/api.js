@@ -5,6 +5,7 @@ const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
 const sse = require('../lib/sse');
+const { classifyIssue } = require('../lib/classify');
 
 const SETTINGS_PATH = path.join(__dirname, '..', 'app-settings.json');
 const DEFAULT_SETTINGS = {
@@ -339,60 +340,22 @@ router.patch('/issues/:id', async (req, res) => {
   res.json(issue);
 });
 
-// POST /api/issues/:id/classify — ให้ AI แนะนำหมวดหมู่ (ไม่เขียน DB — frontend apply ผ่าน PATCH)
+// POST /api/issues/:id/classify — ให้ Gemma จัดหมวดหมู่ (frontend apply ผ่าน PATCH)
 router.post('/issues/:id/classify', async (req, res) => {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY ไม่ได้ตั้งค่า — เพิ่มในไฟล์ .env' });
+  if (!process.env.GOOGLE_AI_API_KEY)
+    return res.status(503).json({ error: 'GOOGLE_AI_API_KEY ไม่ได้ตั้งค่า — เพิ่มใน Render Environment Variables' });
 
   const { id } = req.params;
-  const [{ data: issue, error: issueErr }, { data: cats }] = await Promise.all([
-    supabase.from('issues').select('title, messages(from_type, text)').eq('id', id).single(),
-    supabase.from('categories').select('id, label').order('sort_order'),
-  ]);
+  const { data: issue, error: issueErr } = await supabase
+    .from('issues').select('title, messages(from_type, text)').eq('id', id).single();
   if (issueErr || !issue) return res.status(404).json({ error: 'ไม่พบเรื่อง' });
 
-  const catList = (cats || []).map((c) => `${c.id}: ${c.label}`).join('\n');
-  const customerMsgs = (issue.messages || [])
-    .filter((m) => m.from_type === 'customer')
-    .slice(0, 4)
-    .map((m) => m.text)
-    .filter(Boolean)
-    .join('\n');
-
-  const prompt = `คุณคือระบบจัดหมวดหมู่ปัญหาของลูกค้า จงแยกหมวดหมู่ปัญหาต่อไปนี้
-
-หัวข้อ: ${issue.title}${customerMsgs ? `\nข้อความลูกค้า:\n${customerMsgs}` : ''}
-
-หมวดหมู่ที่มี:
-${catList}
-
-ตอบเฉพาะ ID หมวดหมู่เท่านั้น (เช่น "bug" หรือ "repair") ไม่ต้องอธิบาย`;
-
   try {
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 20,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!aiRes.ok) {
-      const errData = await aiRes.json().catch(() => ({}));
-      return res.status(502).json({ error: 'AI error: ' + (errData.error?.message || aiRes.statusText) });
-    }
-    const aiData = await aiRes.json();
-    const suggested = aiData.content?.[0]?.text?.trim().split(/\s/)[0].toLowerCase();
-    const validIds = (cats || []).map((c) => c.id);
-    const category = validIds.includes(suggested) ? suggested : validIds[0] || 'howto';
+    const category = await classifyIssue({ title: issue.title, thread: issue.messages });
+    if (!category) return res.status(422).json({ error: 'Gemma ไม่สามารถจัดหมวดหมู่ได้' });
     res.json({ category });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(502).json({ error: err.message });
   }
 });
 

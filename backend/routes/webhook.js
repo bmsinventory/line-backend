@@ -8,6 +8,7 @@ const router = express.Router();
 const supabase = require('../lib/supabase');
 const lineClient = require('../lib/line');
 const sse = require('../lib/sse');
+const { classifyIssue } = require('../lib/classify');
 
 // INSERT โดยตรงผ่าน https.request() เพื่อหลีกเลี่ยงปัญหา fetch/Content-Length
 function dbInsert(table, data) {
@@ -469,6 +470,14 @@ router.post('/line', async (req, res) => {
         });
         sse.broadcast();
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
+
+        // Auto-classify โดย Gemma (fire-and-forget — ไม่ block webhook)
+        classifyIssue({ title }).then(async (category) => {
+          if (!category) return;
+          await supabase.from('issues').update({ category }).eq('id', newIssueId);
+          sse.broadcast();
+          console.log(`[AutoClassify] issue ${newIssueId} → ${category}`);
+        }).catch(err => console.error('[AutoClassify]', err.message));
 
         // แจ้งยืนยันกลับในกลุ่ม (Flex หรือ text ตาม settings)
         try {
