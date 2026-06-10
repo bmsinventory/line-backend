@@ -484,6 +484,49 @@ function Dashboard({ issues, isMobile }) {
             )}
         </Panel>
 
+        {/* ══ Team Type KPI ══ */}
+        {(D.TEAM_TYPES || []).filter(t => t.is_active).length > 0 && (() => {
+          const activeTypes = (D.TEAM_TYPES || []).filter(t => t.is_active);
+          const rows = activeTypes.map(t => {
+            const openForTeam  = open.filter(i => i.teamTypeId === t.id).length;
+            const totalForTeam = issues.filter(i => i.teamTypeId === t.id).length;
+            return { label: t.team_name, value: openForTeam, total: totalForTeam, color: t.color };
+          }).filter(r => r.total > 0).sort((a, b) => b.value - a.value);
+          const noTeam = open.filter(i => !i.teamTypeId).length;
+
+          if (rows.length === 0 && noTeam === 0) return null;
+          const maxVal = Math.max(...rows.map(r => r.value), noTeam, 1);
+
+          return (
+            <Panel title="ประเภททีมที่มีงานค้าง" sub="เรื่องที่ยังไม่ปิด แยกตามประเภททีม">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {rows.map(r => (
+                  <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: r.color, flexShrink: 0 }}></span>
+                    <span style={{ width: 110, fontSize: 12.5, fontWeight: 700, color: '#334155', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.label}</span>
+                    <div style={{ flex: 1, height: 8, background: '#F1F5F9', borderRadius: 99 }}>
+                      <div style={{ width: `${Math.round(r.value / maxVal * 100)}%`, height: '100%', borderRadius: 99, background: r.color, transition: 'width .3s' }}></div>
+                    </div>
+                    <span style={{ width: 28, fontSize: 12.5, fontWeight: 800, color: r.color, textAlign: 'right' }}>{r.value}</span>
+                    <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>/{r.total}</span>
+                  </div>
+                ))}
+                {noTeam > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: '#CBD5E1', flexShrink: 0 }}></span>
+                    <span style={{ width: 110, fontSize: 12.5, fontWeight: 700, color: '#94A3B8', flexShrink: 0 }}>ไม่ระบุทีม</span>
+                    <div style={{ flex: 1, height: 8, background: '#F1F5F9', borderRadius: 99 }}>
+                      <div style={{ width: `${Math.round(noTeam / maxVal * 100)}%`, height: '100%', borderRadius: 99, background: '#CBD5E1', transition: 'width .3s' }}></div>
+                    </div>
+                    <span style={{ width: 28, fontSize: 12.5, fontWeight: 800, color: '#94A3B8', textAlign: 'right' }}>{noTeam}</span>
+                    <span style={{ fontSize: 11, color: '#CBD5E1' }}></span>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          );
+        })()}
+
         {/* ══ Performance footer ══ */}
         <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:14 }}>
           <div style={{

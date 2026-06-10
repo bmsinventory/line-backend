@@ -91,23 +91,38 @@ router.patch('/groups/:id', async (req, res) => {
 // MEMBERS
 // =====================================================
 router.get('/members', async (_req, res) => {
-  const { data, error } = await supabase
-    .from('members')
-    .select('*')
-    .order('name');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { data, error } = await supabase
+      .from('members')
+      .select('*, member_team_types(team_type_id)')
+      .order('name');
+    if (error) return res.status(500).json({ error: error.message });
+    const result = (data || []).map(({ member_team_types, ...m }) => ({
+      ...m,
+      team_type_ids: (member_team_types || []).map(t => t.team_type_id),
+    }));
+    res.json(result);
+  } catch (err) {
+    // fallback ถ้า member_team_types ยังไม่มี (ก่อนรัน migration)
+    const { data, error } = await supabase.from('members').select('*').order('name');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json((data || []).map(m => ({ ...m, team_type_ids: [] })));
+  }
 });
 
 router.post('/members', async (req, res) => {
-  const { id, name, role, color, initials, email, phone } = req.body;
+  const { id, name, role, color, initials, email, phone, team_type_ids } = req.body;
   if (!id || !name) return res.status(400).json({ error: 'id and name required' });
   const row = { id, name, role, color: color || '#64748B', initials: initials || name.slice(0, 2) };
   if (email) row.email = email.trim().toLowerCase();
   if (phone) row.phone = phone.trim();
   const { data, error } = await supabase.from('members').insert(row).select().single();
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  const ids = Array.isArray(team_type_ids) ? team_type_ids : [];
+  if (ids.length > 0) {
+    await supabase.from('member_team_types').insert(ids.map(team_type_id => ({ member_id: id, team_type_id })));
+  }
+  res.json({ ...data, team_type_ids: ids });
 });
 
 router.patch('/members/:id', async (req, res) => {
@@ -116,12 +131,19 @@ router.patch('/members/:id', async (req, res) => {
   ['name','role','color','initials','line_user_id','email','phone'].forEach(k => {
     if (req.body[k] !== undefined) patch[k] = req.body[k] === '' ? null : req.body[k];
   });
-  // normalize email lowercase
   if (patch.email) patch.email = patch.email.toLowerCase();
-  const { data, error } = await supabase
-    .from('members').update(patch).eq('id', id).select().single();
+  const { data, error } = await supabase.from('members').update(patch).eq('id', id).select().single();
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  // อัปเดต team_type_ids ถ้ามีการส่งมา
+  if (req.body.team_type_ids !== undefined) {
+    await supabase.from('member_team_types').delete().eq('member_id', id);
+    const ids = Array.isArray(req.body.team_type_ids) ? req.body.team_type_ids : [];
+    if (ids.length > 0) {
+      await supabase.from('member_team_types').insert(ids.map(team_type_id => ({ member_id: id, team_type_id })));
+    }
+  }
+  const { data: tt } = await supabase.from('member_team_types').select('team_type_id').eq('member_id', id);
+  res.json({ ...data, team_type_ids: (tt || []).map(t => t.team_type_id) });
 });
 
 // POST /api/members/:id/password — ตั้ง/เปลี่ยนรหัสผ่านสมาชิก
@@ -147,10 +169,12 @@ router.delete('/members/:id', async (req, res) => {
 // =====================================================
 router.get('/me', async (req, res) => {
   const { memberId } = req.admin;
-  const { data, error } = await supabase
-    .from('members').select('id,name,role,email,phone,color,initials,line_user_id').eq('id', memberId).single();
+  const [{ data, error }, { data: tt }] = await Promise.all([
+    supabase.from('members').select('id,name,role,email,phone,color,initials,line_user_id').eq('id', memberId).single(),
+    supabase.from('member_team_types').select('team_type_id').eq('member_id', memberId),
+  ]);
   if (error) return res.status(404).json({ error: 'ไม่พบข้อมูลผู้ใช้' });
-  res.json(data);
+  res.json({ ...data, team_type_ids: (tt || []).map(t => t.team_type_id) });
 });
 
 router.patch('/me', async (req, res) => {
@@ -182,19 +206,32 @@ router.post('/me/password', async (req, res) => {
 // ISSUES
 // =====================================================
 
-// GET /api/issues — ดึงทุก issue พร้อม messages
-router.get('/issues', async (_req, res) => {
-  const { data, error } = await supabase
+// GET /api/issues — ดึง issues พร้อม messages (กรองตามทีมถ้าไม่ใช่ Admin)
+router.get('/issues', async (req, res) => {
+  const { role, memberId } = req.admin;
+  let query = supabase
     .from('issues')
     .select(`*, messages(*)`)
     .order('created_at', { ascending: false });
+
+  // Support role: กรองตามทีม (เว้นแต่ show_all=true)
+  if (role !== 'แอดมิน' && req.query.show_all !== 'true') {
+    const { data: memberTeams } = await supabase
+      .from('member_team_types').select('team_type_id').eq('member_id', memberId);
+    if (memberTeams && memberTeams.length > 0) {
+      const ids = memberTeams.map(t => t.team_type_id).join(',');
+      query = query.or(`team_type_id.in.(${ids}),team_type_id.is.null`);
+    }
+  }
+
+  const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 // POST /api/issues — สร้าง issue ด้วยมือ (ไม่ผ่าน Line)
 router.post('/issues', async (req, res) => {
-  const { title, group_id, category, priority, reporter_name } = req.body;
+  const { title, group_id, category, priority, reporter_name, team_type_id } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
 
   const { data, error } = await supabase
@@ -204,6 +241,7 @@ router.post('/issues', async (req, res) => {
       group_id:          group_id || null,
       category:          category || 'howto',
       priority:          priority || 'normal',
+      team_type_id:      team_type_id || null,
       reporter_name:     reporter_name || 'แอดมิน',
       reporter_color:    '#06C755',
       reporter_initials: 'ME',
@@ -216,18 +254,19 @@ router.post('/issues', async (req, res) => {
   res.status(201).json(data);
 });
 
-// PATCH /api/issues/:id — อัปเดตสถานะ / ผู้รับผิดชอบ / priority / category
+// PATCH /api/issues/:id — อัปเดตสถานะ / ผู้รับผิดชอบ / priority / category / team_type
 router.patch('/issues/:id', async (req, res) => {
   const { id } = req.params;
-  const { status, assignee_id, priority, category, tags } = req.body;
+  const { status, assignee_id, priority, category, tags, team_type_id } = req.body;
 
   const patch = {};
-  if (status      !== undefined) patch.status      = status;
-  if (assignee_id !== undefined) patch.assignee_id = assignee_id;
-  if (priority    !== undefined) patch.priority    = priority;
-  if (category    !== undefined) patch.category    = category;
-  if (tags        !== undefined) patch.tags        = tags;
-  if (status === 'resolved')     patch.closed_at   = new Date().toISOString();
+  if (status        !== undefined) patch.status        = status;
+  if (assignee_id   !== undefined) patch.assignee_id   = assignee_id;
+  if (priority      !== undefined) patch.priority      = priority;
+  if (category      !== undefined) patch.category      = category;
+  if (tags          !== undefined) patch.tags          = tags;
+  if (team_type_id  !== undefined) patch.team_type_id  = team_type_id;
+  if (status === 'resolved')       patch.closed_at     = new Date().toISOString();
 
   const { data: issue, error } = await supabase
     .from('issues').update(patch).eq('id', id).select().single();
@@ -442,6 +481,59 @@ router.patch('/quick-replies/:id', async (req, res) => {
 
 router.delete('/quick-replies/:id', async (req, res) => {
   const { error } = await supabase.from('quick_replies').delete().eq('id', parseInt(req.params.id));
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// =====================================================
+// TEAM TYPES
+// =====================================================
+router.get('/team-types', async (_req, res) => {
+  const { data, error } = await supabase.from('team_types').select('*').order('team_name');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+router.post('/team-types', async (req, res) => {
+  const { team_name, description, color } = req.body;
+  if (!team_name?.trim()) return res.status(400).json({ error: 'team_name required' });
+  const { data, error } = await supabase.from('team_types').insert({
+    team_name: team_name.trim(),
+    description: description?.trim() || null,
+    color: color || '#64748B',
+    is_active: true,
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
+});
+
+router.patch('/team-types/:id', async (req, res) => {
+  const patch = {};
+  if (req.body.team_name   !== undefined) patch.team_name   = req.body.team_name;
+  if (req.body.description !== undefined) patch.description = req.body.description;
+  if (req.body.color       !== undefined) patch.color       = req.body.color;
+  if (req.body.is_active   !== undefined) patch.is_active   = req.body.is_active;
+  patch.updated_at = new Date().toISOString();
+  const { data, error } = await supabase.from('team_types').update(patch).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+router.delete('/team-types/:id', async (req, res) => {
+  const { id } = req.params;
+  const [{ data: usedByIssues }, { data: usedByMembers }] = await Promise.all([
+    supabase.from('issues').select('id').eq('team_type_id', id).limit(1),
+    supabase.from('member_team_types').select('member_id').eq('team_type_id', id).limit(1),
+  ]);
+  if ((usedByIssues?.length > 0) || (usedByMembers?.length > 0)) {
+    // มีการใช้งานอยู่ → deactivate แทนการลบ
+    const { data, error } = await supabase.from('team_types')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('id', id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ...data, deactivated: true });
+  }
+  const { error } = await supabase.from('team_types').delete().eq('id', id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 });
