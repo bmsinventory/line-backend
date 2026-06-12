@@ -22,8 +22,24 @@ async function pushMessage(params) {
   }
 }
 
+// replyMessage ใช้ replyToken จาก LINE event — ฟรี ไม่นับ quota
+async function replyMessage(params) {
+  try {
+    return await _client.replyMessage(params);
+  } catch (err) {
+    // replyToken หมดอายุ (>30 วิ) หรือถูกใช้ไปแล้ว → fallback เป็น push
+    const status = err.statusCode ?? err.status ?? err.response?.status;
+    if (status === 400) {
+      console.warn('[LINE] replyToken expired or already used — falling back to pushMessage');
+      if (params.to) return pushMessage({ to: params.to, messages: params.messages });
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   pushMessage,
+  replyMessage,
   getGroupSummary:       (...a) => _client.getGroupSummary(...a),
   getGroupMemberProfile: (...a) => _client.getGroupMemberProfile(...a),
 };

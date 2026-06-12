@@ -479,11 +479,16 @@ router.post('/line', async (req, res) => {
           console.log(`[AutoClassify] issue ${newIssueId} → ${category}`);
         }).catch(err => console.error('[AutoClassify]', err.message));
 
-        // แจ้งยืนยันกลับในกลุ่ม (Flex หรือ text ตาม settings)
+        // แจ้งยืนยันกลับในกลุ่ม — ใช้ replyMessage (ฟรี ไม่นับ quota)
+        // fallback เป็น pushMessage อัตโนมัติถ้า replyToken หมดอายุ
         try {
           const autoReply = getAutoReply(reporterName, title);
           if (autoReply) {
-            await lineClient.pushMessage({ to: lineGroupId, messages: [autoReply] });
+            await lineClient.replyMessage({
+              replyToken: event.replyToken,
+              to:         lineGroupId, // ส่งไปด้วยเพื่อ fallback
+              messages:   [autoReply],
+            });
           }
         } catch { /* ถ้าส่งไม่ได้ ไม่ต้อง block */ }
         } // end if shouldCreate
