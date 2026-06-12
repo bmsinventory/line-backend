@@ -1,9 +1,9 @@
 const supabase = require('./supabase');
 
 const GOOGLE_AI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-// ใช้ gemma-3-27b-it เป็น default (รองรับผ่าน Google AI Studio)
-// เปลี่ยนได้ผ่าน env GEMMA_MODEL เช่น gemma-3-27b-it, gemini-2.0-flash
-const DEFAULT_MODEL = 'gemma-3-27b-it';
+// gemini-2.0-flash-lite: เร็ว, ฟรี, รองรับ Google AI Studio
+// เปลี่ยนได้ผ่าน env GEMMA_MODEL เช่น gemini-2.0-flash, gemini-1.5-flash
+const DEFAULT_MODEL = 'gemini-2.0-flash-lite';
 
 /**
  * จัดหมวดหมู่ issue โดย Gemma ผ่าน Google AI Studio API
