@@ -9,9 +9,11 @@ function unsubscribe(res) {
   clients.delete(res);
 }
 
-// Notify all connected browsers that data has changed
-function broadcast() {
-  const msg = 'event: update\ndata: {}\n\n';
+// Notify all connected browsers
+// type: 'update' (generic reload), 'new_issue', 'assignment'
+// data: object to include as JSON payload
+function broadcast(type = 'update', data = {}) {
+  const msg = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
   clients.forEach((res) => {
     try {
       res.write(msg);

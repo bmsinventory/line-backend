@@ -1,3 +1,63 @@
+/* ===== Notification & Sound utilities ===== */
+
+// AudioContext — created lazily on first user interaction
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+  return _audioCtx;
+}
+// Unlock AudioContext on first touch/click
+document.addEventListener('click',      () => getAudioCtx(), { once: true, passive: true });
+document.addEventListener('touchstart', () => getAudioCtx(), { once: true, passive: true });
+
+function playSound(type) {
+  const ctx = getAudioCtx();
+  if (!ctx || ctx.state === 'suspended') return;
+
+  const schedule = (freq, startOffset, dur = 0.13) => {
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    const t = ctx.currentTime + startOffset;
+    gain.gain.setValueAtTime(0.28, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.start(t);
+    osc.stop(t + dur);
+  };
+
+  if (type === 'new_issue') {
+    // Two quick ascending beeps
+    schedule(660, 0,    0.12);
+    schedule(880, 0.16, 0.14);
+  } else if (type === 'assignment') {
+    // Three ascending tones — more prominent
+    schedule(880,  0,    0.14);
+    schedule(1100, 0.17, 0.14);
+    schedule(1320, 0.34, 0.18);
+  }
+}
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    await Notification.requestPermission().catch(() => {});
+  }
+}
+
+function showBrowserNotif(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, { body, icon: '/icon-192.png', tag: tag || 'line-tracker', renotify: true });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch { /* ignore */ }
+}
+
 /* ===== App shell ===== */
 const NAV = [
   { id: 'inbox',     label: 'กล่องรวม',  icon: 'inbox' },
@@ -318,7 +378,7 @@ function GroupsView({ issues, isMobile }) {
 }
 
 /* ---------- top bar ---------- */
-function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, onAddIssue, currentUser }) {
+function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, onAddIssue, currentUser, notifPerm, onRequestNotif }) {
   const titles = { inbox: 'กล่องรวมปัญหา', board: 'บอร์ดงาน', list: 'รายการปัญหาทั้งหมด', dashboard: 'แดชบอร์ดภาพรวม', groups: 'กลุ่ม Line ที่เชื่อมต่อ', settings: 'ตั้งค่าระบบ' };
   const subs = {
     inbox:     'ทุกข้อความแจ้งปัญหาจากทุกกลุ่ม รวมที่เดียว',
@@ -341,10 +401,27 @@ function TopBar({ view, search, setSearch, isMobile, toast, setView, onLogout, o
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาปัญหา, รหัส, ผู้แจ้ง…" style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: 'inherit', fontSize: 13.5, color: '#1E293B', width: '100%' }} />
         </div>
       )}
-      <button style={{ position: 'relative', border: 'none', background: '#F1F5F9', borderRadius: 11, width: 40, height: 40, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B' }}>
-        <Icon name="bell" size={19} />
-        <span style={{ position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: 99, background: '#EF4444', boxShadow: '0 0 0 2px #fff' }}></span>
-      </button>
+      {/* Notification bell — shows permission state, click to enable */}
+      {notifPerm !== 'unsupported' && (
+        <button
+          title={notifPerm === 'granted' ? 'การแจ้งเตือนเปิดอยู่' : notifPerm === 'denied' ? 'การแจ้งเตือนถูกบล็อก (เปิดใน Settings ของเบราว์เซอร์)' : 'คลิกเพื่อเปิดการแจ้งเตือน'}
+          onClick={notifPerm === 'default' ? onRequestNotif : undefined}
+          style={{
+            position: 'relative', border: 'none', borderRadius: 11, width: 40, height: 40,
+            cursor: notifPerm === 'default' ? 'pointer' : 'default',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: notifPerm === 'granted' ? '#ECFDF5' : '#F1F5F9',
+            color: notifPerm === 'granted' ? '#06C755' : notifPerm === 'denied' ? '#94A3B8' : '#64748B',
+          }}>
+          <Icon name="bell" size={19} />
+          {notifPerm === 'default' && (
+            <span style={{ position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: 99, background: '#F59E0B', boxShadow: '0 0 0 2px #fff' }}></span>
+          )}
+          {notifPerm === 'denied' && (
+            <span style={{ position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: 99, background: '#EF4444', boxShadow: '0 0 0 2px #fff' }}></span>
+          )}
+        </button>
+      )}
       {isMobile && (
         <ProfileMenu align="right" width={230} setView={setView} onLogout={onLogout} currentUser={currentUser} trigger={() => (
           <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', borderRadius: '50%' }}>
@@ -396,7 +473,12 @@ function App() {
   const [search, setSearch]         = useState('');
   const [toast, setToast]           = useState(null);
   const [showAllTeams, setShowAllTeams] = useState(false);
-  const showAllRef = useRef(false);
+  const [notifPerm, setNotifPerm]   = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
+  const showAllRef    = useRef(false);
+  const currentUserRef = useRef(null);
+
+  // Keep ref in sync so SSE callbacks have current user without stale closure
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
 
@@ -471,9 +553,37 @@ function App() {
   useEffect(() => {
     if (!authed) return;
 
-    // SSE — backend push ทันทีเมื่อมีการเปลี่ยนแปลงข้อมูล
     const es = new EventSource('/api/events');
+
+    // Generic data change (status, reply, etc.)
     es.addEventListener('update', fetchIssues);
+
+    // New issue from LINE → sound + browser notification for everyone
+    es.addEventListener('new_issue', (e) => {
+      const data = JSON.parse(e.data || '{}');
+      fetchIssues();
+      playSound('new_issue');
+      showBrowserNotif(
+        'ปัญหาใหม่จาก LINE',
+        data.reporterName ? `${data.reporterName}: ${data.title}` : (data.title || 'มีปัญหาใหม่เข้ามา'),
+        'new-issue'
+      );
+    });
+
+    // Assignment → sound + notification only for the assigned member
+    es.addEventListener('assignment', (e) => {
+      const data = JSON.parse(e.data || '{}');
+      fetchIssues();
+      if (data.assigneeId && data.assigneeId === currentUserRef.current?.memberId) {
+        playSound('assignment');
+        showBrowserNotif(
+          'ได้รับมอบหมายงานใหม่',
+          `"${data.title || 'Ticket'}" ถูกมอบหมายให้คุณ`,
+          'assignment'
+        );
+      }
+    });
+
     es.addEventListener('error', () => console.warn('[SSE] reconnecting…'));
 
     // Polling ทุก 30 วินาที เป็น ultimate fallback
@@ -549,6 +659,10 @@ function App() {
     } catch {}
     await loadData();
     setAuthed(true);
+    // Request notification permission after login (requires user gesture from login click)
+    requestNotifPermission().then(() => {
+      if ('Notification' in window) setNotifPerm(Notification.permission);
+    });
   };
 
   const doLogout = async () => {
@@ -580,7 +694,7 @@ function App() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#EEF2F1' }}>
       {!isMobile && <NavRail view={view} setView={setView} isMobile={false} openCount={openCount} onLogout={doLogout} currentUser={currentUser} />}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, paddingBottom: isMobile ? 64 : 0 }}>
-        <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} currentUser={currentUser} />
+        <TopBar view={view} search={search} setSearch={setSearch} isMobile={isMobile} toast={toast} setView={setView} onLogout={doLogout} onAddIssue={addIssue} currentUser={currentUser} notifPerm={notifPerm} onRequestNotif={() => requestNotifPermission().then(() => { if ('Notification' in window) setNotifPerm(Notification.permission); })} />
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {view === 'inbox'     && <InboxView issues={issues} selId={selId} setSel={setSel} onUpdate={update} onReply={reply} isMobile={isMobile} search={search} flash={flash} currentUser={currentUser} showAllTeams={showAllTeams} onToggleShowAll={handleShowAllTeams} />}
           {view === 'board'     && <Board issues={issues} onUpdate={update} onOpen={openFromBoard} isMobile={isMobile} />}

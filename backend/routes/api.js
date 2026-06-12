@@ -336,7 +336,12 @@ router.patch('/issues/:id', async (req, res) => {
   }
   if (systemMsgs.length) await supabase.from('messages').insert(systemMsgs);
 
-  sse.broadcast();
+  // Typed SSE event for assignment so clients can play targeted notification
+  if (assignee_id !== undefined) {
+    sse.broadcast('assignment', { issueId: id, title: issue.title, assigneeId: assignee_id });
+  } else {
+    sse.broadcast();
+  }
   res.json(issue);
 });
 

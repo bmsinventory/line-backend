@@ -468,7 +468,7 @@ router.post('/line', async (req, res) => {
           quote_token:     event.message.quoteToken || null,
           created_at:      timestamp,
         });
-        sse.broadcast();
+        sse.broadcast('new_issue', { issueId: newIssueId, title, reporterName, teamTypeId: issueTeamTypeId });
         console.log(`[Webhook] สร้าง issue ใหม่: ${title}`);
 
         // Auto-classify โดย Gemma (fire-and-forget — ไม่ block webhook)

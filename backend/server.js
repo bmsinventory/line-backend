@@ -3,6 +3,7 @@ const express    = require('express');
 const cors       = require('cors');
 const path       = require('path');
 const requireAuth = require('./middleware/auth');
+const { icon192, icon512 } = require('./lib/make-icon');
 
 const app = express();
 app.set('trust proxy', 1); // Render.com / reverse proxy
@@ -14,6 +15,10 @@ app.use(cors({ origin: true, credentials: true }));
 
 // Serve frontend (HTML + JSX files อยู่ใน ./public)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// PWA icons (generated at startup — no file deps)
+app.get('/icon-192.png', (_req, res) => { res.type('image/png'); res.send(icon192); });
+app.get('/icon-512.png', (_req, res) => { res.type('image/png'); res.send(icon512); });
 
 // Webhook (ไม่ต้อง auth — LINE ส่งมา)
 app.use('/webhook', require('./routes/webhook'));
